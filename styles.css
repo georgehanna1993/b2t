@@ -78,3 +78,6 @@ body{font-family:'Trebuchet MS',Arial,sans-serif;letter-spacing:.05px}
 .slide-vector{z-index:2}
 
 .string-line{height:1px!important;background:#a88d70!important;z-index:0}.string-label{z-index:5!important;left:1px!important;padding:1px 3px;background:#fbfaf5;color:#514437!important;font-size:10px!important;font-weight:700}.tab-note{background:#fff8e9!important;box-shadow:0 0 0 2px #fff8e9!important}.tab-note.current{background:#9FED72!important;box-shadow:0 0 0 2px #9FED72!important}.slide-vector{z-index:2!important}.tab-note.slide-end{background:#FFA97B!important}
+
+/* give the top (G) string row room so its note boxes aren't clipped by the scroll container */
+.tab-scroll{padding-top:14px}
