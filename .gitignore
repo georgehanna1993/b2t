@@ -1,0 +1,6 @@
+*.wav
+*.mp3
+*.aiff
+*.flac
+.DS_Store
+Thumbs.db

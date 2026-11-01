@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#f4f0e6" />
+  <title>Lowline — learn the line</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="masthead"><a href="#" class="wordmark">LOWLINE<span class="wordmark-dot">.</span></a><span class="header-note">A SMALL TOOL FOR THE LOW END</span><a href="#upload" class="header-action">MAKE A TAB <span>↘</span></a></header>
+  <main>
+    <section class="hero">
+      <div class="hero-copy"><p class="overline">BASS TAB, FROM YOUR AUDIO</p><h1>Learn the line.<br><em>Feel the pocket.</em></h1><p class="intro">Drop in a bass recording. Get a rough map of the notes, then make the part your own.</p></div>
+      <div class="hero-graphic" aria-hidden="true"><div class="fretboard"><i></i><i></i><i></i><i></i><i></i><b class="fret-note note-one"></b><b class="fret-note note-two"></b><b class="fret-note note-three"></b></div><div class="graphic-caption">FOUR STRINGS.<br>ROOM TO GROOVE.</div></div>
+    </section>
+    <section class="start" id="upload"><div class="start-top"><h2>Start with a sound.</h2><span>01 — YOUR AUDIO</span></div>
+      <div class="start-actions"><button class="upload-button" id="dropzone"><input id="fileInput" type="file" accept="audio/wav,audio/wave,.wav" hidden /><span class="upload-plus">＋</span><span><b>Drop a WAV here</b><small>or choose a file · isolated bass works best</small></span><span class="upload-arrow">↗</span></button><button class="demo-button" id="demoBtn"><span class="demo-play">▶</span><span><b>Just show me</b><small>Play a little demo groove</small></span><span class="upload-arrow">↗</span></button></div>
+      <p class="status" id="statusLine"><span class="status-dot"></span><span id="statusText">Audio stays on your device. Full-song bass separation is a future feature.</span><button id="dismissStatus" aria-label="Dismiss">×</button></p>
+      <div class="analysis-progress" id="analysisProgress" hidden><div class="progress-caption"><span id="analysisText">Listening to your WAV…</span><b id="progressPct">0%</b></div><div class="progress-track"><i id="analysisBar"></i></div><p>Checking pitch, note attacks, and possible slides.</p></div>
+    </section>
+    <section class="practice" id="playerSection" aria-label="Bass tab practice player">
+      <div class="songline"><div><span class="tiny-label">YOUR PRACTICE LOOP <i id="demoPill">· DEMO</i></span><h2 id="trackName">Pocket groove <span>—</span> Lowline session</h2><p id="trackSub">Estimated notes · E standard bass</p></div><button class="play-round" id="playBtn" aria-label="Play"><span>▶</span></button></div>
+      <div class="timeline-wrap"><div class="timeline-meta"><span><i></i> <span id="currentTime">00:00</span></span><span id="durationLabel">00:16</span></div><div class="waveform" id="waveform" role="slider" tabindex="0" aria-label="Audio timeline" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><canvas id="waveCanvas"></canvas><div class="wave-progress" id="waveProgress"></div><div class="wave-cursor" id="waveCursor"></div></div></div>
+      <div class="tab-heading"><h3>THE NOTES <span id="noteCount">· 32 NOTES</span></h3><details class="options"><summary aria-label="Practice options">OPTIONS <span>＋</span></summary><div class="options-pop"><label for="tuningSelect">Tuning</label><select id="tuningSelect" aria-label="Bass tuning"><option value="E">E standard</option><option value="D">D standard</option><option value="dropD">Drop D</option></select><button id="noteNamesBtn" aria-pressed="false">Note names</button><button id="barsBtn" aria-pressed="true">Bar markers</button><button id="loopBtn" aria-pressed="false">Loop section</button><div class="speed-control"><label for="speedSelect">Speed</label><select id="speedSelect"><option value="1">100%</option><option value="0.8">80%</option><option value="0.65">65%</option></select></div></div></details></div>
+      <div class="tab-scroll" id="tabScroll"><div class="tab-grid" id="tabGrid"></div></div>
+      <div class="tab-bottom"><span id="tabTuning">E A D G</span><span>QUESTION MARK = CHECK THIS NOTE BY EAR</span></div>
+      <div class="transport"><button id="restartBtn" aria-label="Restart">↺</button><button id="pauseBtn" aria-label="Pause">PAUSE</button><span class="transport-hint">CLICK THE TAB TO JUMP AROUND</span><span class="playing-bars"><i></i><i></i><i></i></span></div>
+    </section>
+    <div class="phone-note" id="mobileCurrent"><span>NOW PLAYING</span><b>—</b><small>Tap a note to jump</small></div>
+    <aside class="fine-print"><span>✳</span><p><b>Use your ears, too.</b> Audio-to-tab is an estimate. Orange question marks mean a note is less certain.</p><a href="#" id="futureLink">FULL SONGS: LATER</a></aside>
+  </main>
+  <footer><span>LOWLINE / MADE FOR THE LOW NOTES</span><span>STAY IN THE POCKET&nbsp; ✳ &nbsp;2026</span></footer>
+  <audio id="audioPlayer" preload="auto"></audio><div class="toast" id="toast" role="status"></div><script src="app.js"></script>
+</body>
+</html>
