@@ -8,8 +8,10 @@ Audio playback uses the original file. Note, slap, and slide detection is a loca
 
 1. **Prepare** – mono mix, band-limit to the bass range, decimate to ~11 kHz.
 2. **Onsets** – a log-energy envelope finds every note attack, so repeated notes stay separate.
-3. **Pitch per note** – YIN is run *after* the attack transient. Each note is split into pitch plateaus:
-   a gradual glide is a **slide**, an instant jump with no new attack is a **hammer-on / pull-off**.
+3. **Pitch per note** – YIN proposes several pitch candidates per frame, and a Viterbi search picks the most
+   continuous path (this removes octave flips and one-frame glitches). The path is then read for movement:
+   a smooth glide is **one slide event** (start note + end note, never extra notes), an abrupt change of
+   up to 5 semitones with no new attack is a **hammer-on / pull-off**, a bigger leap is a new note.
 4. **Techniques** – **slap/pop** from attack brightness (energy above 1.5 kHz in the first 30 ms);
    **muted/ghost notes** from transients with no pitch.
 5. **Cleanup** – global tuning offset is removed, lone octave glitches are repaired.
@@ -23,5 +25,13 @@ Tunable thresholds live in `CFG` at the top of `analysis.js`. After analysing a 
 
 ```
 node test/run.js            # synthetic basslines with known notes, prints accuracy
+node test/realistic.js      # harder: synth bass + reverb + pumping + kick/hi-hat/pad bleed + long glides
+OUT_WAV=stem.wav node test/realistic.js   # also writes that audio so you can try it in the browser
 node test/make_wav.js a.wav # writes a mixed test bassline to try in the browser
 ```
+
+### Known limits
+- Steady tonal bleed (e.g. a pad chord) that is only ~10 dB below the bass can be read as a low note
+  once the bass stops. Kick-drum thumps are filtered out; tonal bleed cannot be told apart from a note by pitch alone.
+- Very slow slides (under ~10 semitones/second) are not detected as slides.
+- Slap/pop detection uses an absolute brightness threshold (`slapBright`) that may need calibrating to your bass.

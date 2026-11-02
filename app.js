@@ -8,48 +8,49 @@ function midiName(m){return noteNames[((m%12)+12)%12]+(Math.floor(m/12)-1)}
 function fmt(t){if(!isFinite(t))t=0;return `${String(Math.floor(t/60)).padStart(2,'0')}:${String(Math.floor(t%60)).padStart(2,'0')}`}
 function strings(){return tuningSelect.value==='D'?[26,31,36,41]:tuningSelect.value==='dropD'?[26,33,38,43]:[28,33,38,43]}
 function findFret(midi){const ss=strings();let opts=[];ss.forEach((open,s)=>{let f=midi-open;if(f>=0&&f<=24)opts.push({s,f})});opts.sort((a,b)=>a.f-b.f);return opts[0]||{s:0,f:0,unplayable:true}}
+const TAB={pad:60,pxPerSec:96,minGap:38,row:30,top:24,noteNames:['E','A','D','G']};
+let noteEnds=[];
+const svgNS='http://www.w3.org/2000/svg';
+function tabEl(tag,cls,x,y,text){const e=document.createElement(tag);e.className=cls;e.style.left=x+'px';e.style.top=y+'px';if(text!==undefined)e.textContent=text;return e}
 function buildTab(){
   LowlineAnalysis.assignFrets(notes,strings());
-  const grid=document.getElementById('tabGrid');
-  grid.innerHTML='';rowLabels=[];
-  const pad=42,minGap=34,slideCount=notes.filter(n=>n.slideTo).length,w=Math.max(820,notes.length*42+slideCount*82+120);
+  const grid=document.getElementById('tabGrid'),rowY=s=>TAB.top+(3-s)*TAB.row; // string 0 (lowest) is the bottom line
+  grid.innerHTML='';rowLabels=[];notePositions=[];noteEnds=[];
+  // 1) layout: x from time, pushed right so notes never overlap; slides reserve room for their end note
+  const layout=[];let cursor=TAB.pad-TAB.minGap;
+  notes.forEach((n,i)=>{
+    const x=Math.max(TAB.pad+n.time*TAB.pxPerSec,cursor+TAB.minGap),isSlide=n.slideTo!=null,endX=isSlide?x+Math.max(78,n.dur*TAB.pxPerSec):x;
+    notePositions[i]=x;noteEnds[i]=endX;layout.push({n,i,x,endX,y:rowY(n.string)});cursor=endX;
+  });
+  // 2) the staff is exactly as wide as the content, so strings never run out
+  const lastX=layout.length?layout[layout.length-1].endX:0,w=Math.max(820,Math.ceil(lastX+TAB.pad));
   grid.style.width=w+'px';
-  for(let s=0;s<4;s++){
-    const y=s*28+14,line=document.createElement('div'),label=document.createElement('span');
-    line.className='string-line';line.style.top=y+'px';grid.append(line);
-    label.className='string-label';label.style.top=y+'px';label.style.left='1px';label.textContent=['G','D','A','E'][s];grid.append(label);rowLabels.push(label);
-  }
-  if(showBars){
-    for(let t=0;t<duration;t+=2){const x=pad+(t/duration)*(w-pad-20),marker=document.createElement('div'),label=document.createElement('span');marker.className='bar-marker';marker.style.left=x+'px';label.className='bar-label';label.textContent=''+(Math.floor(t/2)+1);marker.append(label);grid.append(marker)}
-  }
-  let cursor=pad-minGap;const layout=[];
-  notePositions=[];
-  for(let i=0;i<notes.length;i++){
-    const n=notes[i];let p={s:n.string,f:n.fret};
-    const row=3-p.s,y=row*28+14,timeX=pad+(n.time/duration)*(w-pad-20);
-    const x=Math.max(timeX,cursor+minGap),slideSpan=n.slideTo?Math.max(82,(n.dur/duration)*(w-pad-20)):0;
-    notePositions[i]=x;layout.push({n,p,x,y,slideSpan});cursor=x+Math.max(minGap,slideSpan+18);
-  }
-  layout.forEach(({n,p,x,y,slideSpan},i)=>{
-    const note=document.createElement('button');
-    note.className='tab-note'+(n.confidence<.75?' uncertain':'')+(n.mute?' muted':'');
-    note.style.left=x+'px';note.style.top=(y-13)+'px';note.textContent=n.mute?'×':p.f;note.dataset.index=i;
+  for(let s=0;s<4;s++){const l=document.createElement('div');l.className='string-line';l.style.top=rowY(s)+'px';grid.append(l)}
+  const labels=document.createElement('div');labels.className='string-labels';
+  for(let s=0;s<4;s++)labels.append(tabEl('span','string-label',0,rowY(s),TAB.noteNames[s]));
+  grid.append(labels);
+  if(showBars){for(let t=0;TAB.pad+t*TAB.pxPerSec<w;t+=2){const m=tabEl('div','bar-marker',TAB.pad+t*TAB.pxPerSec-TAB.minGap/2,0);m.append(tabEl('span','bar-label',0,0,''+(t/2+1)));m.querySelector('span').style.left='4px';m.querySelector('span').style.top='-4px';grid.append(m)}}
+  // 3) notes
+  layout.forEach(({n,i,x,endX,y})=>{
+    const note=tabEl('button','tab-note'+(n.confidence<.75?' uncertain':'')+(n.mute?' muted':''),x,y,n.mute?'×':n.fret);
+    note.dataset.index=i;
     note.title=`${n.mute?'Muted note':midiName(n.midi)} · ${fmt(n.time)}${n.confidence<.75?' · uncertain':''}${n.slap?' · possible slap':''}${n.technique==='legato'?' · hammer-on/pull-off':''}${n.feat?` · brightness ${n.feat.bright.toFixed(2)}`:''}`;
-    note.setAttribute('aria-label',n.mute?`Muted note at ${fmt(n.time)}`:`Note ${midiName(n.midi)}, string ${['E','A','D','G'][p.s]}, fret ${p.f}, ${fmt(n.time)}`);
+    note.setAttribute('aria-label',n.mute?`Muted note at ${fmt(n.time)}`:`Note ${midiName(n.midi)}, ${TAB.noteNames[n.string]} string, fret ${n.fret}, ${fmt(n.time)}`);
     note.onclick=()=>seek(n.time);grid.append(note);
-    if(n.slideTo){
-      const fret=n.slideTo-strings()[p.s],endX=x+slideSpan,end=document.createElement('button');
-      if(fret>=0&&fret<=24){
-        const lineWidth=Math.max(34,endX-x-26),svg=document.createElementNS('http://www.w3.org/2000/svg','svg');
-        svg.setAttribute('viewBox',`0 0 ${lineWidth} 24`);svg.setAttribute('class','slide-vector '+(n.slideTo>n.midi?'slide-up':'slide-down'));svg.setAttribute('aria-hidden','true');svg.style.left=(x+13)+'px';svg.style.top=(y-31)+'px';svg.style.width=lineWidth+'px';svg.style.height='24px';
-        const path=document.createElementNS('http://www.w3.org/2000/svg','path');path.setAttribute('d',n.slideTo>n.midi?`M 0 18 L ${lineWidth} 6`:`M 0 6 L ${lineWidth} 18`);path.setAttribute('fill','none');path.setAttribute('stroke','#E00000');path.setAttribute('stroke-width','2');path.setAttribute('stroke-linecap','round');path.setAttribute('marker-end',`url(#slide-arrow-${i})`);
-        const defs=document.createElementNS('http://www.w3.org/2000/svg','defs'),marker=document.createElementNS('http://www.w3.org/2000/svg','marker'),tip=document.createElementNS('http://www.w3.org/2000/svg','path');marker.setAttribute('id',`slide-arrow-${i}`);marker.setAttribute('markerWidth','7');marker.setAttribute('markerHeight','7');marker.setAttribute('refX','6');marker.setAttribute('refY','3.5');marker.setAttribute('orient','auto');marker.setAttribute('markerUnits','strokeWidth');tip.setAttribute('d','M0,0 L7,3.5 L0,7');tip.setAttribute('fill','none');tip.setAttribute('stroke','#E00000');tip.setAttribute('stroke-width','1.5');marker.append(tip);defs.append(marker);svg.append(defs,path);grid.append(svg);
-        end.className='tab-note slide-end';end.style.left=endX+'px';end.style.top=(y-25)+'px';end.textContent=fret;end.title=`Slide destination ${midiName(n.slideTo)}`;end.setAttribute('aria-label',`Slide destination ${midiName(n.slideTo)}, fret ${fret}`);end.onclick=()=>seek(n.time+n.dur);grid.append(end);
-      }
+    if(n.slideTo!=null){ // exactly two notes: where the slide starts and where it lands, joined by one arrow
+      const endFret=n.slideTo-strings()[n.string],up=n.slideTo>n.midi,len=Math.max(30,endX-x-34);
+      const svg=document.createElementNS(svgNS,'svg');svg.setAttribute('class','slide-vector');svg.setAttribute('viewBox',`0 0 ${len} 24`);svg.setAttribute('aria-hidden','true');
+      svg.style.left=(x+17)+'px';svg.style.top=(y-12)+'px';svg.style.width=len+'px';svg.style.height='24px';
+      const id='slide-arrow-'+i,defs=document.createElementNS(svgNS,'defs'),mk=document.createElementNS(svgNS,'marker'),tip=document.createElementNS(svgNS,'path');
+      mk.setAttribute('id',id);mk.setAttribute('markerWidth','7');mk.setAttribute('markerHeight','7');mk.setAttribute('refX','6');mk.setAttribute('refY','3.5');mk.setAttribute('orient','auto');mk.setAttribute('markerUnits','strokeWidth');
+      tip.setAttribute('d','M0,0 L7,3.5 L0,7');tip.setAttribute('fill','none');tip.setAttribute('stroke','#E00000');tip.setAttribute('stroke-width','1.5');mk.append(tip);defs.append(mk);
+      const path=document.createElementNS(svgNS,'path');path.setAttribute('d',up?`M 0 17 L ${len} 7`:`M 0 7 L ${len} 17`);path.setAttribute('fill','none');path.setAttribute('stroke','#E00000');path.setAttribute('stroke-width','2');path.setAttribute('stroke-linecap','round');path.setAttribute('marker-end',`url(#${id})`);
+      svg.append(defs,path);grid.append(svg);
+      const end=tabEl('button','tab-note slide-end',endX,y,endFret);end.title=`Slide lands on ${midiName(n.slideTo)}`;end.setAttribute('aria-label',`Slide destination ${midiName(n.slideTo)}, fret ${endFret}`);end.onclick=()=>seek(n.time+n.dur);grid.append(end);
     }
-    if(n.technique==='legato'&&i>0&&!n.mute){const mark=document.createElement('span');mark.className='tech-mark slap';mark.style.left=(x-17)+'px';mark.style.top=(y-3)+'px';mark.textContent=n.midi>notes[i-1].midi?'h':'p';mark.title=n.midi>notes[i-1].midi?'Hammer-on':'Pull-off';grid.append(mark)}
-    if(n.slap){const mark=document.createElement('span');mark.className='tech-mark slap';mark.style.left=x+'px';mark.style.top=(y-3)+'px';mark.textContent='S';mark.title='Possible slap attack';grid.append(mark)}
-    if(showNames){const name=document.createElement('span');name.className='tab-note-name';name.style.left=x+'px';name.style.top=y+'px';name.textContent=midiName(n.midi);grid.append(name)}
+    if(n.technique==='legato'&&i>0&&!n.mute){const up=n.midi>notes[i-1].midi;const m=tabEl('span','tech-mark',x-19,y-10,up?'h':'p');m.title=up?'Hammer-on':'Pull-off';grid.append(m)}
+    if(n.slap){const m=tabEl('span','tech-mark',x+13,y+10,'S');m.title='Possible slap attack';grid.append(m)}
+    if(showNames)grid.append(tabEl('span','tab-note-name',x,y+14,midiName(n.midi)));
   });
   document.getElementById('noteCount').textContent=`· ${notes.length} NOTES`;
   grid.classList.toggle('show-names',showNames);
@@ -57,22 +58,21 @@ function buildTab(){
   highlight(-1);
 }
 function playheadX(t){
-  if(!notes.length)return 42;
+  if(!notes.length)return TAB.pad;
   let i=-1;for(let j=0;j<notes.length;j++){if(notes[j].time<=t)i=j;else break}
-  if(i<0)return notePositions[0]||42;
-  const n=notes[i],x=notePositions[i]||42;
-  const endX=n.slideTo?x+Math.max(62,(n.dur/duration)*(document.getElementById('tabGrid').scrollWidth-62)):x;
-  if(n.slideTo&&t<n.time+n.dur&&n.dur>0)return x+(endX-x)*Math.max(0,(t-n.time)/n.dur);
+  if(i<0)return notePositions[0]||TAB.pad;
+  const n=notes[i],x=notePositions[i],endX=noteEnds[i],isSlide=n.slideTo!=null;
+  if(isSlide&&n.dur>0&&t<n.time+n.dur)return x+(endX-x)*Math.max(0,(t-n.time)/n.dur);
   if(i>=notes.length-1)return endX;
-  const next=notes[i+1],nextX=notePositions[i+1]||endX,f=Math.max(0,Math.min(1,(t-n.time)/Math.max(.001,next.time-n.time)));
-  return endX+(nextX-endX)*f;
+  const s0=isSlide?n.time+n.dur:n.time,f=Math.max(0,Math.min(1,(t-s0)/Math.max(.001,notes[i+1].time-s0)));
+  return endX+(notePositions[i+1]-endX)*f;
 }
 function drawWave(data){let rect=canvas.getBoundingClientRect(),dpr=devicePixelRatio||1;canvas.width=rect.width*dpr;canvas.height=rect.height*dpr;ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,rect.width,rect.height);let count=Math.max(1,Math.floor(rect.width/3)),step=Math.max(1,Math.floor(data.length/count)),mid=rect.height/2;for(let i=0;i<count;i++){let a=0;for(let j=0;j<step;j++)a=Math.max(a,Math.abs(data[i*step+j]||0));let h=Math.max(2,a*rect.height*.92);ctx.fillStyle=i/count<(audio.currentTime/duration)?'#E00000':'#FFA97B';ctx.globalAlpha=i/count<(audio.currentTime/duration)?.95:.8;ctx.fillRect(i*rect.width/count,mid-h/2,Math.max(1,rect.width/count-1),h)}ctx.globalAlpha=1}
 function demoWave(){let n=2200;let a=new Float32Array(n);for(let i=0;i<n;i++)a[i]=Math.abs(Math.sin(i*.078)*Math.sin(i*.021)*.82+Math.sin(i*.018)*.16);return a}
 function setWave(data){if(canvas.getBoundingClientRect().width)drawWave(data);else requestAnimationFrame(()=>drawWave(data));document.getElementById('durationLabel').textContent=fmt(duration);}
 function highlight(i){currentIndex=i;document.querySelectorAll('.tab-note').forEach(el=>el.classList.toggle('current',+el.dataset.index===i));let n=notes[i];document.querySelector('#mobileCurrent b').textContent=n?`${midiName(n.midi)} · ${n.fret}`:'—';if(n){let el=document.querySelector(`.tab-note[data-index="${i}"]`);}}
 function nowTime(){return audio.currentTime}
-function updateTime(){if(!playing)return;let t=nowTime();if(loopOn&&t>=loopEnd&&loopEnd>loopStart){audio.currentTime=loopStart;t=loopStart}if(t>=duration){pause();audio.currentTime=0;return}let pct=Math.min(1,t/duration)*100;document.getElementById('waveCursor').style.left=pct+'%';document.getElementById('waveProgress').style.width=pct+'%';document.getElementById('currentTime').textContent=fmt(t);const view=document.getElementById('tabScroll'),grid=document.getElementById('tabGrid'),noteX=playheadX(t),maxScroll=Math.max(0,view.scrollWidth-view.clientWidth);view.scrollLeft=Math.max(0,Math.min(maxScroll,noteX-view.clientWidth*.45));rowLabels.forEach(label=>label.style.left=(view.scrollLeft+1)+'px');let idx=-1;for(let i=0;i<notes.length;i++){if(notes[i].time<=t)idx=i;else break}if(idx!==currentIndex)highlight(idx);raf=requestAnimationFrame(updateTime)}
+function updateTime(){if(!playing)return;let t=nowTime();if(loopOn&&t>=loopEnd&&loopEnd>loopStart){audio.currentTime=loopStart;t=loopStart}if(t>=duration){pause();audio.currentTime=0;return}let pct=Math.min(1,t/duration)*100;document.getElementById('waveCursor').style.left=pct+'%';document.getElementById('waveProgress').style.width=pct+'%';document.getElementById('currentTime').textContent=fmt(t);const view=document.getElementById('tabScroll'),grid=document.getElementById('tabGrid'),noteX=playheadX(t),maxScroll=Math.max(0,view.scrollWidth-view.clientWidth);view.scrollLeft=Math.max(0,Math.min(maxScroll,noteX-view.clientWidth*.45));let idx=-1;for(let i=0;i<notes.length;i++){if(notes[i].time<=t)idx=i;else break}if(idx!==currentIndex)highlight(idx);raf=requestAnimationFrame(updateTime)}
 function pause(){playing=false;cancelAnimationFrame(raf);audio.pause();document.body.classList.remove('playing');document.getElementById('playBtn').innerHTML='<span>▶</span>'}
 async function play(){if(playing)return;if(!audio.src)return toast('Choose the demo or upload a WAV first.');audio.playbackRate=speed;audio.preservesPitch=true;try{await audio.play()}catch{toast('Could not start audio. Try pressing play again.');return}playing=true;document.body.classList.add('playing');document.getElementById('playBtn').innerHTML='<span>Ⅱ</span>';raf=requestAnimationFrame(updateTime)}
 function seek(t){t=Math.max(0,Math.min(duration,t));if(audio.src)audio.currentTime=t;else{audio.currentTime=t;window.lastDemoNote=-1}let pct=t/duration*100;document.getElementById('waveCursor').style.left=pct+'%';document.getElementById('waveProgress').style.width=pct+'%';document.getElementById('currentTime').textContent=fmt(t);let i=-1;for(let j=0;j<notes.length;j++)if(notes[j].time<=t)i=j;highlight(i);if(playing){pause();play()}}
@@ -131,4 +131,3 @@ document.getElementById('loopBtn').onclick=e=>{loopOn=!loopOn;e.currentTarget.se
 
 
 
-document.getElementById('tabScroll').addEventListener('scroll',()=>rowLabels.forEach(label=>label.style.left=(document.getElementById('tabScroll').scrollLeft+1)+'px'));

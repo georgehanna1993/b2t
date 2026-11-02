@@ -31,8 +31,17 @@
     slideMinSemis: 1.2,
     slideMinFrames: 3,   // transition lasting this many frames (~35 ms+) is a slide, shorter is legato
     legatoMinSemis: 0.7,
+    moveSemis: 0.45,     // pitch moved this much across 4 frames -> candidate glide/jump
+    glideMinSemis: 1.0,  // net change needed to call it a glide or jump (vibrato stays below this)
+    jumpMaxFrames: 5,    // a pitch change spread over <= this many frames (~58 ms) is a jump, longer is a glide
+    hammerMaxSemis: 5,   // bigger leaps without a new attack are re-plucks, not hammer-ons/pull-offs
+    kickMaxMidi: 35,     // kick-drum bleed lives down here (< ~62 Hz) and snaps back up
+    tailDb: 24,          // frames this far under the note's peak are ignored (decaying tail, hum)
+    holdFrames: 6,       // landing held this long -> a following glide is a new slide
     slapBright: 0.15,    // fraction of attack energy above 1.5 kHz that suggests slap/pop
     muteMaxMs: 170,
+    unvoicedCost: 0.35,
+    voicingSwitchCost: 0.3,
     minMidi: 23,
     maxMidi: 67
   };
@@ -69,8 +78,8 @@
     return { mono: hp, low, D, srD: sr / D };
   }
 
-  // ---------- YIN ----------
-  function yin(x, start, W, tauMin, tauMax, d, cmnd) {
+  // ---------- YIN (returns several pitch candidates per frame) ----------
+  function yinCands(x, start, W, tauMin, tauMax, d, cmnd) {
     for (let tau = 1; tau <= tauMax; tau++) {
       let sum = 0;
       for (let j = 0; j < W; j++) { const df = x[start + j] - x[start + j + tau]; sum += df * df; }
@@ -79,81 +88,189 @@
     cmnd[0] = 1;
     let run = 0;
     for (let tau = 1; tau <= tauMax; tau++) { run += d[tau]; cmnd[tau] = run > 0 ? d[tau] * tau / run : 1; }
-    let tau = -1;
+    let pick = -1; // classic YIN choice: first dip under the threshold
     for (let t = tauMin; t <= tauMax; t++) {
-      if (cmnd[t] < CFG.yinThresh) {
-        while (t + 1 <= tauMax && cmnd[t + 1] < cmnd[t]) t++;
-        tau = t; break;
+      if (cmnd[t] < CFG.yinThresh) { while (t + 1 <= tauMax && cmnd[t + 1] < cmnd[t]) t++; pick = t; break; }
+    }
+    const list = [];
+    for (let t = tauMin + 1; t < tauMax; t++) {
+      if (cmnd[t] <= CFG.yinVoicedMax && cmnd[t] <= cmnd[t - 1] && cmnd[t] < cmnd[t + 1]) list.push(t);
+    }
+    if (pick >= 0 && list.indexOf(pick) < 0) list.push(pick);
+    list.sort((p, q) => cmnd[p] - cmnd[q]);
+    return list.slice(0, 4).map(t => {
+      let refined = t;
+      if (t > 1 && t < tauMax) {
+        const a = cmnd[t - 1], b = cmnd[t], c = cmnd[t + 1], den = a - 2 * b + c;
+        if (Math.abs(den) > 1e-9) refined = t + Math.max(-0.5, Math.min(0.5, 0.5 * (a - c) / den));
       }
-    }
-    if (tau < 0) {
-      let best = tauMin;
-      for (let t = tauMin; t <= tauMax; t++) if (cmnd[t] < cmnd[best]) best = t;
-      if (cmnd[best] > CFG.yinVoicedMax) return null;
-      tau = best;
-    }
-    let refined = tau;
-    if (tau > 1 && tau < tauMax) {
-      const a = cmnd[tau - 1], b = cmnd[tau], c = cmnd[tau + 1], den = a - 2 * b + c;
-      if (Math.abs(den) > 1e-9) refined = tau + Math.max(-0.5, Math.min(0.5, 0.5 * (a - c) / den));
-    }
-    return { tau: refined, aper: cmnd[tau] };
+      return { tau: refined, aper: cmnd[t], cost: cmnd[t] - (t === pick ? 0.12 : 0) };
+    });
   }
 
-  // ---------- pitch plateaus -> notes ----------
-  // frames: [{t, m (midi float or NaN), c (0..1)}]
-  function buildPieces(frames) {
-    const TOL = CFG.runTol, runs = [];
-    let cur = null, pend = [];
-    for (let i = 0; i < frames.length; i++) {
-      const v = frames[i].m;
-      if (isNaN(v)) continue;
-      if (!cur) { cur = { start: i, end: i, vals: [v], cs: [frames[i].c], trans: [] }; continue; }
-      const ref = median(cur.vals.slice(-5));
-      if (Math.abs(v - ref) <= TOL) { cur.vals.push(v); cur.cs.push(frames[i].c); cur.end = i; pend = []; continue; }
-      pend.push({ i, v, c: frames[i].c });
-      if (pend.length >= 3) {
-        const tail = pend.slice(-3), vs = tail.map(x => x.v);
-        const spread = Math.max(...vs) - Math.min(...vs);
-        if (spread <= CFG.stableSpread && tail[2].i - tail[0].i <= 5) {
-          const trans = pend.slice(0, pend.length - 3);
-          runs.push(cur);
-          cur = { start: tail[0].i, end: tail[2].i, vals: vs, cs: tail.map(x => x.c), trans };
-          pend = [];
-        } else if (pend.length > 30) {
-          runs.push(cur);
-          cur = { start: tail[0].i, end: tail[2].i, vals: vs, cs: tail.map(x => x.c), trans: [] };
-          pend = [];
-        }
-      }
+  // Viterbi over per-frame candidates (+ an "unvoiced" state) so the pitch path is continuous:
+  // kills octave flips and one-frame glitches while still allowing real jumps and glides.
+  function trackPath(cands, srD) {
+    const n = cands.length, UNV = CFG.unvoicedCost, states = [], score = [], back = [];
+    for (let f = 0; f < n; f++) {
+      states[f] = cands[f].map(c => ({ m: 69 + 12 * Math.log2(srD / c.tau / 440), aper: c.aper, cost: c.cost }));
+      states[f].push(null); // unvoiced
     }
-    if (cur) runs.push(cur);
-    if (!runs.length) return [];
+    const jump = (a, b) => {
+      const d = Math.abs(a - b);
+      let c = Math.min(2, 0.12 * d);
+      if (Math.abs(d - 12) < 0.7 || Math.abs(d - 24) < 0.7) c += 0.8; // octave leaps are usually errors
+      return c;
+    };
+    for (let f = 0; f < n; f++) {
+      score[f] = []; back[f] = [];
+      states[f].forEach((st, si) => {
+        const obs = st ? st.cost : UNV;
+        if (f === 0) { score[f][si] = obs; back[f][si] = -1; return; }
+        let best = 1e9, bi = 0;
+        states[f - 1].forEach((pv, pi) => {
+          let tr;
+          if (!st && !pv) tr = 0; else if (!st || !pv) tr = CFG.voicingSwitchCost; else tr = jump(st.m, pv.m);
+          const v = score[f - 1][pi] + tr;
+          if (v < best) { best = v; bi = pi; }
+        });
+        score[f][si] = best + obs; back[f][si] = bi;
+      });
+    }
+    let si = 0; score[n - 1].forEach((v, i) => { if (v < score[n - 1][si]) si = i; });
+    const path = new Array(n);
+    for (let f = n - 1; f >= 0; f--) { path[f] = states[f][si]; si = back[f][si]; }
+    return path;
+  }
 
-    const pieces = [];
-    const mkPiece = (r, startIdx) => ({
-      startIdx, mf: median(r.vals), slideToF: null, lastM: median(r.vals),
-      endIdx: r.end, conf: r.cs.slice(), frames: r.vals.length, technique: null, slideEndIdx: null
+  // ---------- pitch curve -> notes ----------
+  // frames: [{t, m (midi float or NaN), c (0..1)}]
+  // 1. find places where the pitch MOVES (4-frame displacement)
+  // 2. a smooth move = glide (one start->end event, never extra notes), an abrupt one = jump (hammer/pull)
+  // 3. the steady stretches between events are the notes' pitches
+  function buildPieces(frames) {
+    const n = frames.length;
+    if (!n) return [];
+    const m0 = frames.map(f => f.m);
+    const ms = m0.map((v, i) => {
+      if (isNaN(v)) return NaN;
+      return median([m0[i - 1], v, m0[i + 1]].filter(q => q !== undefined && !isNaN(q)));
     });
-    let piece = mkPiece(runs[0], runs[0].start), prevEnd = runs[0].end;
+    // `mi` bridges short unvoiced gaps (the tracker abstains while its window straddles a note change)
+    // so a jump across a 1-4 frame gap is still seen; regions below use the real voiced values only.
+    const mi = ms.slice();
+    for (let i = 0; i < n;) {
+      if (!isNaN(ms[i])) { i++; continue; }
+      let j = i; while (j < n && isNaN(ms[j])) j++;
+      if (i > 0 && j < n && j - i <= 4) for (let q = i; q < j; q++) mi[q] = ms[i - 1] + (ms[j] - ms[i - 1]) * (q - i + 1) / (j - i + 1);
+      i = j;
+    }
+    const mv = new Array(n).fill(false);
+    for (let i = 2; i < n - 2; i++) {
+      const a = mi[i - 2], b = mi[i + 2];
+      if (!isNaN(a) && !isNaN(b) && !isNaN(mi[i]) && Math.abs(b - a) >= CFG.moveSemis) mv[i] = true;
+    }
+    const events = [];
+    for (let i = 0; i < n;) {
+      if (!mv[i]) { i++; continue; }
+      let j = i;
+      while (j + 1 < n && (mv[j + 1] || (j + 2 < n && mv[j + 2]))) j++;
+      let a = Math.max(0, i - 2), b = Math.min(n - 1, j + 2);
+      while (a > 0 && isNaN(mi[a])) a--;
+      while (b < n - 1 && isNaN(mi[b])) b++;
+      i = j + 1;
+      if (isNaN(mi[a]) || isNaN(mi[b])) continue;
+      const net = mi[b] - mi[a];
+      if (Math.abs(net) < CFG.glideMinSemis) continue;           // vibrato / wobble
+      let last = mi[a], maxStep = 0, maxAt = a + 1, moving = 0, good = 0, tot = 0;
+      for (let q = a + 1; q <= b; q++) {
+        if (isNaN(mi[q])) continue;
+        const st = mi[q] - last; last = mi[q];
+        if (Math.abs(st) > maxStep) { maxStep = Math.abs(st); maxAt = q; }
+        if (Math.abs(st) >= 0.12) { moving++; tot++; if (Math.sign(st) === Math.sign(net)) good++; }
+      }
+      const monotonic = tot === 0 || good / tot >= 0.7;
+      const isJump = moving <= CFG.jumpMaxFrames || maxStep >= 0.7 * Math.abs(net);
+      if (isJump) events.push({ type: 'jump', a: Math.max(0, maxAt - 1), b: maxAt, net });
+      else if (monotonic) events.push({ type: 'glide', a, b, net });
+    }
+    // steady regions between events
+    const regions = [];
+    let rs = 0;
+    const addRegion = (s0, e0) => {
+      const vals = [], cs = [];
+      for (let q = s0; q <= e0 && q < n; q++) if (!isNaN(ms[q])) { vals.push(ms[q]); cs.push(frames[q].c); }
+      regions.push({ s: s0, e: e0, vals, cs, count: vals.length, pitch: vals.length ? median(vals) : NaN, between: [] });
+    };
+    events.forEach((ev, k) => {
+      addRegion(rs, ev.a);
+      rs = Math.max(ev.b, rs);
+      regions[regions.length - 1].after = ev;
+    });
+    addRegion(rs, n - 1);
+    // keep usable regions; remember which events lie between consecutive usable ones
+    const usable = [];
+    regions.forEach((r, k) => {
+      const minC = (k === 0 || k === regions.length - 1) ? 2 : 3;
+      if (r.count >= minC) usable.push({ r, evBefore: [] });
+      else if (usable.length && r.after) usable[usable.length - 1].carry = (usable[usable.length - 1].carry || []).concat([r.after]);
+    });
+    // attach events between usable regions
+    const evOf = [];
+    let ei = 0;
+    usable.forEach((u, k) => {
+      const between = [];
+      const idx = regions.indexOf(u.r);
+      if (k > 0) {
+        const prevIdx = regions.indexOf(usable[k - 1].r);
+        for (let q = prevIdx; q < idx; q++) if (regions[q].after) between.push(regions[q].after);
+      }
+      evOf.push(between);
+    });
+    if (!usable.length) return [];
+
+    const mkPiece = (R, startIdx) => ({
+      startIdx, mf: R.pitch, slideToF: null, lastM: R.pitch, endIdx: R.e,
+      conf: R.cs.slice(), frames: R.count, technique: null, slideEndIdx: null, lastCount: R.count
+    });
+    const pieces = [];
+    let piece = mkPiece(usable[0].r, usable[0].r.s), prevR = usable[0].r;
     pieces.push(piece);
-    for (let k = 1; k < runs.length; k++) {
-      const r = runs[k], m = median(r.vals), delta = m - piece.lastM, ad = Math.abs(delta);
-      if (ad < CFG.legatoMinSemis) {
-        piece.endIdx = r.end; piece.conf.push(...r.cs); prevEnd = r.end; continue;
-      }
-      if (Math.abs(ad - 12) < 0.6 && r.vals.length < 4) { prevEnd = r.end; continue; } // octave glitch
-      const transLen = r.start - prevEnd - 1, sgn = Math.sign(delta);
-      let good = 0, tot = 0;
-      for (let q = 1; q < r.trans.length; q++) { tot++; if (Math.sign(r.trans[q].v - r.trans[q - 1].v) === sgn) good++; }
-      const monotonic = tot === 0 || good / tot >= 0.6;
-      if (transLen >= CFG.slideMinFrames && ad >= CFG.slideMinSemis && monotonic && piece.slideToF === null) {
-        piece.slideToF = m; piece.lastM = m; piece.endIdx = r.end; piece.slideEndIdx = r.start; piece.conf.push(...r.cs);
+    for (let k = 1; k < usable.length; k++) {
+      const R = usable[k].r, between = evOf[k];
+      const delta = R.pitch - piece.lastM, ad = Math.abs(delta);
+      const hasGlide = between.some(e => e.type === 'glide');
+      if (ad < CFG.legatoMinSemis) { piece.endIdx = R.e; piece.conf.push(...R.cs); piece.lastCount = R.count; prevR = R; continue; }
+      if (Math.abs(ad - 12) < 0.7 && R.count < 4) { prevR = R; continue; } // tiny octave glitch
+      if (hasGlide && ad >= CFG.glideMinSemis) {
+        const dir = Math.sign(delta);
+        if (piece.slideToF === null) {
+          piece.slideToF = R.pitch; piece.slideEndIdx = R.s; piece.lastM = R.pitch; piece.endIdx = R.e; piece.conf.push(...R.cs); piece.lastCount = R.count;
+        } else if (dir === Math.sign(piece.slideToF - piece.mf) && piece.lastCount < CFG.holdFrames) {
+          piece.slideToF = R.pitch; piece.slideEndIdx = R.s; piece.lastM = R.pitch; piece.endIdx = R.e; piece.lastCount = R.count; // glide continues
+        } else { // landed, held, then slid again: a separate slide with no new attack
+          const np = mkPiece(R, prevR.s); np.mf = piece.lastM; np.slideToF = R.pitch; np.slideEndIdx = R.s; np.technique = 'slide'; np.lastM = R.pitch;
+          piece = np; pieces.push(piece);
+        }
       } else {
-        const startIdx = r.trans.length ? r.trans[0].i : r.start;
-        piece = mkPiece(r, startIdx); piece.technique = 'legato'; pieces.push(piece);
+        if (k === usable.length - 1 && R.count < 4) { prevR = R; continue; } // too short at the very end to trust (release artifacts)
+        piece = mkPiece(R, between.length && between[0].type === 'jump' ? Math.max(prevR.e + 1, R.s - 1) : R.s);
+        piece.technique = ad <= CFG.hammerMaxSemis ? 'legato' : null; pieces.push(piece);
       }
-      prevEnd = r.end;
+      prevR = R;
+    }
+    // big, short excursions that snap back (kick/bleed) are not notes
+    const span = q => q.endIdx - q.startIdx + 1;
+    for (let k = 1; k < pieces.length - 1;) {
+      const A0 = pieces[k - 1], B0 = pieces[k], C0 = pieces[k + 1];
+      if (span(B0) <= 8 && B0.slideToF === null && B0.mf <= CFG.kickMaxMidi && A0.lastM - B0.mf > CFG.hammerMaxSemis && Math.abs(C0.mf - A0.lastM) < 1) {
+        A0.endIdx = C0.endIdx; A0.conf.push(...B0.conf, ...C0.conf); A0.frames += B0.frames + C0.frames; A0.lastM = C0.lastM;
+        pieces.splice(k, 2);
+      } else k++;
+    }
+    if (pieces.length > 1) {
+      const L0 = pieces[pieces.length - 1], P0 = pieces[pieces.length - 2];
+      if (span(L0) <= 6 && L0.slideToF === null && L0.mf <= CFG.kickMaxMidi && P0.lastM - L0.mf > CFG.hammerMaxSemis + 2 && span(P0) >= 8) pieces.pop();
     }
     return pieces;
   }
@@ -197,7 +314,7 @@
       onsets.push({ b, od: od[b] });
     }
     let b0 = 0; while (b0 < nb && eb[b0] < floorDb) b0++;
-    if (b0 < nb - 8 && eb[b0] >= peakDb - 20 && (!onsets.length || onsets[0].b > b0 + 8)) onsets.unshift({ b: b0, od: 0 });
+    if (b0 < nb - 8 && eb[b0] >= peakDb - 12 && (!onsets.length || onsets[0].b > b0 + 8)) onsets.unshift({ b: b0, od: 0 });
     if (!onsets.length) throw new Error('No note attacks found. Try a cleaner isolated bass WAV.');
 
     // slap/pop feature signal: full band high-passed at 1.5 kHz
@@ -215,19 +332,22 @@
     const notes = [], silRms = Math.pow(10, floorDb / 20) * 0.5;
     const frameSec = f => (f * HOP + W / 2) / srD;
 
-    function pitchFrames(fA, fB, limitSample) {
-      const out = [];
+    function pitchFrames(fA, fB, limitSample, minRms) {
+      const meta = [], cands = [];
       for (let f = fA; f <= fB; f++) {
         const start = f * HOP, avail = limitSample - start - W, cap = Math.min(tauMax, avail);
         if (cap < tauMin + 12 || start + W + cap >= x.length) continue;
         let s = 0; for (let j = 0; j < W; j++) s += x[start + j] * x[start + j];
-        if (Math.sqrt(s / W) < silRms) { out.push({ t: frameSec(f), m: NaN, c: 0 }); continue; }
-        const r = yin(x, start, W, tauMin, cap, d, cmnd);
-        if (!r) { out.push({ t: frameSec(f), m: NaN, c: 0 }); continue; }
-        const hz = srD / r.tau, m = 69 + 12 * Math.log2(hz / 440);
-        out.push({ t: frameSec(f), m: (m >= CFG.minMidi - 0.5 && m <= CFG.maxMidi + 0.5) ? m : NaN, c: Math.max(0, Math.min(1, 1 - r.aper)) });
+        meta.push({ t: frameSec(f) });
+        cands.push(Math.sqrt(s / W) < Math.max(silRms, minRms || 0) ? [] : yinCands(x, start, W, tauMin, cap, d, cmnd));
       }
-      return out;
+      if (!meta.length) return [];
+      const path = trackPath(cands, srD);
+      return meta.map((mt, i) => {
+        const st = path[i];
+        const ok = st && st.m >= CFG.minMidi - 0.5 && st.m <= CFG.maxMidi + 0.5;
+        return { t: mt.t, m: ok ? st.m : NaN, c: ok ? Math.max(0, Math.min(1, 1 - st.aper)) : 0 };
+      });
     }
 
     for (let i = 0; i < onsets.length; i++) {
@@ -239,10 +359,11 @@
       const L = endB - bS, onsetSample = bS * HOP + 64, tOn = onsetSample / srD;
       const feat = attackFeatures(onsetSample);
 
-      let fr = L >= 5 ? pitchFrames(bS + 2, endB - 4, endB * HOP + 32) : [];
+      const tailRms = Math.pow(10, (segPeak - CFG.tailDb) / 20) * 0.7;
+      let fr = L >= 5 ? pitchFrames(bS + 2, endB - 4, endB * HOP + 32, tailRms) : [];
       let voiced = fr.filter(q => !isNaN(q.m)).length;
       if (voiced < 1 && L >= 4) { // short note: allow window to overlap into the next one
-        fr = pitchFrames(bS + 2, Math.max(bS + 2, endB - 1), Math.min(x.length, nextB * HOP + 192));
+        fr = pitchFrames(bS + 2, Math.max(bS + 2, endB - 1), Math.min(x.length, nextB * HOP + 192), tailRms);
         voiced = fr.filter(q => !isNaN(q.m)).length;
       }
       if (voiced < 1) {
@@ -251,6 +372,8 @@
         if (i % 20 === 19) { progress(10 + 85 * (i + 1) / onsets.length); await yieldUI(); }
         continue;
       }
+      const vv = fr.filter(q => !isNaN(q.m)).map(q => q.m);
+      if (vv.length >= 2 && vv.length <= 10 && median(vv.slice(0, 2)) - median(vv.slice(-2)) >= 1.5) { if (i % 20 === 19) { progress(10 + 85 * (i + 1) / onsets.length); await yieldUI(); } continue; } // kick-like thump
       const pieces = buildPieces(fr);
       pieces.forEach((p, k) => {
         const isFirst = k === 0, time = isFirst ? tOn : Math.max(tOn, fr[p.startIdx].t - W / 2 / srD * 0.5);
