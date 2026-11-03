@@ -31,13 +31,16 @@
     slideMinSemis: 1.2,
     slideMinFrames: 3,   // transition lasting this many frames (~35 ms+) is a slide, shorter is legato
     legatoMinSemis: 0.7,
+    slowMoveSemis: 0.7,  // ...or this much across 8 frames (catches slow glides)
     moveSemis: 0.45,     // pitch moved this much across 4 frames -> candidate glide/jump
     glideMinSemis: 1.0,  // net change needed to call it a glide or jump (vibrato stays below this)
     jumpMaxFrames: 5,    // a pitch change spread over <= this many frames (~58 ms) is a jump, longer is a glide
     hammerMaxSemis: 5,   // bigger leaps without a new attack are re-plucks, not hammer-ons/pull-offs
     kickMaxMidi: 35,     // kick-drum bleed lives down here (< ~62 Hz) and snaps back up
     tailDb: 24,          // frames this far under the note's peak are ignored (decaying tail, hum)
-    holdFrames: 6,       // landing held this long -> a following glide is a new slide
+    legatoMaxRiseDb: 8,   // a pitch jump with an energy bump bigger than this at the same moment is a pluck, not a hammer-on
+    minNoteFrames: 4,    // notes shorter than this need good confidence to survive
+    holdFrames: 10,      // a pause shorter than this inside one gesture does not split a slide (~115 ms)
     slapBright: 0.15,    // fraction of attack energy above 1.5 kHz that suggests slap/pop
     muteMaxMs: 170,
     unvoicedCost: 0.35,
@@ -169,6 +172,7 @@
     for (let i = 2; i < n - 2; i++) {
       const a = mi[i - 2], b = mi[i + 2];
       if (!isNaN(a) && !isNaN(b) && !isNaN(mi[i]) && Math.abs(b - a) >= CFG.moveSemis) mv[i] = true;
+      if (i >= 4 && i < n - 4) { const a8 = mi[i - 4], b8 = mi[i + 4]; if (!isNaN(a8) && !isNaN(b8) && !isNaN(mi[i]) && Math.abs(b8 - a8) >= CFG.slowMoveSemis) mv[i] = true; }
     }
     const events = [];
     for (let i = 0; i < n;) {
@@ -178,6 +182,7 @@
       let a = Math.max(0, i - 2), b = Math.min(n - 1, j + 2);
       while (a > 0 && isNaN(mi[a])) a--;
       while (b < n - 1 && isNaN(mi[b])) b++;
+      while (b > j && isNaN(mi[b])) b--;          // glide runs into the end of the note: use the last voiced frame
       i = j + 1;
       if (isNaN(mi[a]) || isNaN(mi[b])) continue;
       const net = mi[b] - mi[a];
@@ -194,6 +199,16 @@
       if (isJump) events.push({ type: 'jump', a: Math.max(0, maxAt - 1), b: maxAt, net });
       else if (monotonic) events.push({ type: 'glide', a, b, net });
     }
+    // a glide that pauses briefly at each fret is still ONE slide: merge same-direction events
+    // separated by a short steady stretch (needs at least one real glide among them)
+    const mergedEvents = [];
+    for (const ev of events) {
+      const last = mergedEvents[mergedEvents.length - 1];
+      if (last && Math.sign(ev.net) === Math.sign(last.net) && ev.a - last.b < CFG.holdFrames && (ev.type === 'glide' || last.type === 'glide')) {
+        last.b = Math.max(last.b, ev.b); last.net += ev.net; last.type = 'glide';
+      } else mergedEvents.push({ ...ev });
+    }
+    events.length = 0; events.push(...mergedEvents);
     // steady regions between events
     const regions = [];
     let rs = 0;
@@ -211,7 +226,8 @@
     // keep usable regions; remember which events lie between consecutive usable ones
     const usable = [];
     regions.forEach((r, k) => {
-      const minC = (k === 0 || k === regions.length - 1) ? 2 : 3;
+      const lastAfterGlide = k > 0 && k === regions.length - 1 && regions[k - 1].after && regions[k - 1].after.type === 'glide';
+      const minC = lastAfterGlide ? 1 : (k === 0 || k === regions.length - 1) ? 2 : 3;
       if (r.count >= minC) usable.push({ r, evBefore: [] });
       else if (usable.length && r.after) usable[usable.length - 1].carry = (usable[usable.length - 1].carry || []).concat([r.after]);
     });
@@ -328,6 +344,14 @@
       return { bright: full > 0 ? Math.sqrt(high / full) : 0, crest: rms > 0 ? peak / rms : 0 };
     }
 
+    const FW = 128, FH = 32, fnb = Math.max(0, Math.floor((x.length - FW) / FH)), fdb = new Float32Array(fnb);
+    for (let b = 0; b < fnb; b++) { let sq = 0; for (let j = 0; j < FW; j++) { const v = x[b * FH + j]; sq += v * v; } fdb[b] = 20 * Math.log10(Math.sqrt(sq / FW) + 1e-9); }
+    function energyRise(t) { // biggest short-term energy increase within +-35 ms of t (dB)
+      const c = Math.round(t * srD / FH), r = Math.round(0.035 * srD / FH);
+      let best = -99;
+      for (let b = Math.max(5, c - r); b < Math.min(fnb, c + r); b++) { let base = 1e9; for (let k = 1; k <= 5; k++) base = Math.min(base, fdb[b - k]); best = Math.max(best, fdb[b] - base); }
+      return best;
+    }
     const d = new Float32Array(tauMax + 2), cmnd = new Float32Array(tauMax + 2);
     const notes = [], silRms = Math.pow(10, floorDb / 20) * 0.5;
     const frameSec = f => (f * HOP + W / 2) / srD;
@@ -381,6 +405,8 @@
         const lenF = Math.min(1, p.frames / 4);
         const conf = (p.conf.reduce((a, b) => a + b, 0) / p.conf.length) * (0.55 + 0.45 * lenF);
         const note = { time, mf: p.mf, midi: null, dur: Math.max(0.05, endT - time), confidence: Math.min(0.99, conf), technique: p.technique, feat: isFirst ? feat : null };
+        if (!isFirst && p.technique === 'legato') { note.rise = energyRise(time); if (note.rise >= CFG.legatoMaxRiseDb) note.technique = null; }
+        if (p.frames < CFG.minNoteFrames && conf < 0.8 && p.slideToF === null && !p.technique) return; // 2-3 frames of shaky pitch: noise, not a note
         if (p.slideToF !== null) { note.slideToF = p.slideToF; note.dur = Math.max(0.15, note.dur); note.technique = 'slide'; }
         notes.push(note);
       });

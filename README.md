@@ -28,10 +28,12 @@ node test/run.js            # synthetic basslines with known notes, prints accur
 node test/realistic.js      # harder: synth bass + reverb + pumping + kick/hi-hat/pad bleed + long glides
 OUT_WAV=stem.wav node test/realistic.js   # also writes that audio so you can try it in the browser
 node test/make_wav.js a.wav # writes a mixed test bassline to try in the browser
+node test/analyze_file.js my.wav out.json   # run the analyzer on ANY wav and print every note (stereo/mono, 16-bit)
 ```
 
 ### Known limits
 - Steady tonal bleed (e.g. a pad chord) that is only ~10 dB below the bass can be read as a low note
   once the bass stops. Kick-drum thumps are filtered out; tonal bleed cannot be told apart from a note by pitch alone.
-- Very slow slides (under ~10 semitones/second) are not detected as slides.
+- Slides slower than ~6 semitones/second are not detected as slides.
+- Wideband percussive bursts with no pitch (drum bleed) can show up as muted-note marks (x).
 - Slap/pop detection uses an absolute brightness threshold (`slapBright`) that may need calibrating to your bass.
