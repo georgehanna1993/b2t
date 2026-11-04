@@ -64,7 +64,7 @@ function seek(t){setPosition(t);if(playing){pause();play()}}
 function buildDemoWav(){const sr=44100,count=Math.ceil(duration*sr),samples=new Float32Array(count);demoTimes.forEach((n,k)=>{const from=Math.floor(n.time*sr),next=demoTimes[k+1]?.time??duration,to=Math.min(count,Math.floor(next*sr)),f=440*Math.pow(2,(n.midi-69)/12);for(let i=from;i<to;i++){const t=(i-from)/sr,attack=Math.min(1,t/.004),env=attack*Math.exp(-t*4.1),tone=Math.sin(2*Math.PI*f*t)*.58+Math.sin(4*Math.PI*f*t)*.25+Math.sin(6*Math.PI*f*t)*.11+Math.sin(8*Math.PI*f*t)*.045;samples[i]+=tone*env*.72}});const ab=new ArrayBuffer(44+count*2),v=new DataView(ab),write=(o,s)=>{for(let i=0;i<s.length;i++)v.setUint8(o+i,s.charCodeAt(i))};write(0,'RIFF');v.setUint32(4,36+count*2,true);write(8,'WAVE');write(12,'fmt ');v.setUint32(16,16,true);v.setUint16(20,1,true);v.setUint16(22,1,true);v.setUint32(24,sr,true);v.setUint32(28,sr*2,true);v.setUint16(32,2,true);v.setUint16(34,16,true);write(36,'data');v.setUint32(40,count*2,true);for(let i=0;i<count;i++)v.setInt16(44+i*2,Math.round(Math.max(-1,Math.min(1,samples[i]))*32767),true);return new Blob([ab],{type:'audio/wav'})}
 function makeDemo(){pause();lastPeaks=null;setBassSwitch(false);decoded=null;duration=16;notes=demoTimes.map(x=>({...x}));octaveApplied=0;loopStart=2;loopEnd=6;if(demoUrl)URL.revokeObjectURL(demoUrl);demoUrl=URL.createObjectURL(buildDemoWav());audio.src=demoUrl;audio.load();audio.currentTime=0;audio.preservesPitch=true;document.getElementById('trackName').innerHTML='Pocket groove <span>—</span> Lowline session';document.getElementById('trackSub').textContent='Demo bass · E standard tuning';document.getElementById('demoPill').style.display='';document.getElementById('playerSection').classList.add('visible');setWave(demoWave());autoRhythm();buildTab();seek(0);}
 function toast(s){let t=document.getElementById('toast');t.textContent=s;t.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.classList.remove('show'),2600)}
-function updateAnalysis(pct,label){document.getElementById('analysisBar').style.width=`${pct}%`;document.getElementById('progressPct').textContent=`${Math.round(pct)}%`;document.getElementById('analysisText').textContent=label}
+function updateAnalysis(pct,label){try{localStorage.setItem('lowlineRun',JSON.stringify({pct:Math.round(pct),label,t:Date.now(),dev:navigator.userAgent.slice(0,120),mem:navigator.deviceMemory||null,gpu:!!navigator.gpu}))}catch(e){}document.getElementById('analysisBar').style.width=`${pct}%`;document.getElementById('progressPct').textContent=`${Math.round(pct)}%`;document.getElementById('analysisText').textContent=label}
 async function analyze(file){
   if(file.size>80*1024*1024)return toast('That file exceeds the 80 MB limit.');
   if(!/\.(wav|wave|mp3|m4a|aac|ogg|oga|flac)$/i.test(file.name)&&!/^audio\//.test(file.type))return toast('Please choose an audio file (MP3 or WAV).');
@@ -108,11 +108,11 @@ async function analyze(file){
     document.getElementById('trackName').innerHTML=`${file.name.replace(/</g,'&lt;')} <span>—</span> your bassline`;
     document.getElementById('trackSub').textContent=full?'Bass separated from the full song · click a note to hear it':'Estimated tab · click a note to hear it';
     document.getElementById('demoPill').style.display='none';
-    lastPeaks=peaks;setWave(peaks);autoRhythm();buildTab();seek(0);updateAnalysis(100,'Analysis complete');
+    try{localStorage.removeItem('lowlineRun')}catch(e){}lastPeaks=peaks;setWave(peaks);autoRhythm();buildTab();seek(0);updateAnalysis(100,'Analysis complete');
     sl.textContent=`Found ${notes.length} notes. Click any number or mark to hear just that note.`;
     document.getElementById('playerSection').classList.add('visible');progress.hidden=true;
     document.getElementById('playerSection').scrollIntoView({behavior:'smooth',block:'nearest'});
-  }catch(e){sl.textContent=e.message||'This file could not be analyzed. Try another MP3 or WAV.';progress.hidden=true;toast(e.message||'Could not analyze this file.')}
+  }catch(e){try{localStorage.removeItem('lowlineRun')}catch(_){}sl.textContent=e.message||'This file could not be analyzed. Try another MP3 or WAV.';progress.hidden=true;toast(e.message||'Could not analyze this file.')}
   finally{document.getElementById('dropzone').disabled=false;document.getElementById('demoBtn').disabled=false}
 }
 document.getElementById('demoBtn').onclick=()=>{makeDemo();document.getElementById('statusText').textContent='Demo groove ready. Press play to hear the bass and follow along.';document.getElementById('playerSection').scrollIntoView({behavior:'smooth',block:'nearest'})};dropzone.onclick=e=>{if(e.target!==fileInput)fileInput.click()};fileInput.onchange=e=>{if(e.target.files[0])analyze(e.target.files[0]);fileInput.value=''};dropzone.ondragover=e=>{e.preventDefault();dropzone.classList.add('dragover')};dropzone.ondragleave=()=>dropzone.classList.remove('dragover');dropzone.ondrop=e=>{e.preventDefault();dropzone.classList.remove('dragover');let f=e.dataTransfer.files[0];if(f)analyze(f)};
@@ -187,3 +187,9 @@ function setSource(){const t=audio.currentTime||0,was=playing;if(was)pause();aud
   const go=()=>{try{audio.currentTime=t}catch(e){}if(was)play()};if(audio.readyState>=1)go();else audio.addEventListener('loadedmetadata',go,{once:true})}
 function setBassSwitch(show){const sw=document.getElementById('mixSwitch');sw.hidden=!show;sw.querySelectorAll('button').forEach(b=>b.setAttribute('aria-pressed',(b.dataset.mix==='bass')===hearBass))}
 document.querySelectorAll('[data-mix]').forEach(b=>b.onclick=()=>{hearBass=b.dataset.mix==='bass';setBassSwitch(true);setSource()});
+
+// ---- if the page died in the middle of a song last time, say where (usually: out of memory on this device) ----
+(()=>{let r=null;try{r=JSON.parse(localStorage.getItem('lowlineRun')||'null');localStorage.removeItem('lowlineRun')}catch(e){}
+  if(!r||Date.now()-r.t>3600e3)return;
+  const msg=`Last time the page restarted at ${r.pct}% ("${r.label}"). This usually means the browser ran out of memory. Device memory: ${r.mem?r.mem+' GB':'unknown'}, WebGPU: ${r.gpu?'yes':'no'}.`;
+  document.getElementById('statusText').textContent=msg;window.lowlineLastCrash=r;console.warn(msg,r)})();
