@@ -48,6 +48,8 @@ pitched note is also an 'x'. Measured: owner's ghosts 5.2-5.6 dB; realistic.js s
 in a narrow band (~5-5.5 dB bump): bigger reads as a re-pluck, smaller is ignored.
 Fret-touch blip: a +-1 semitone pitch change with no pluck (<= 110 ms) between two notes of one pitch is dropped - the fretting
 finger landing on a ringing open E sounds F for a moment (AOBTD: 17 false F1s).
+Notes below the lowest open string (5-string / drop-tuned parts on a 4-string) are fingered an octave up (`n.octaveUp`, '8va' mark
+over the fret) instead of being drawn as an open string; tested in fingering_test.js #9.
 Same-note re-plucks while the string rings (legato eighths): a ghost candidate with a >= 3 dB dip just before it, OR a >= 16 dB
 click above 1.5 kHz, AND the level still within 4 dB 150 ms later, splits the note (a ghost instead dies away).
 

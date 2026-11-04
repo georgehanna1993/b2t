@@ -128,7 +128,7 @@
       if (n.slideIn) tech.push('slide in from ' + (n.slideIn === 'up' ? 'below' : 'above'));
       if (n.vibrato) tech.push('vibrato');
       if (n.slap) tech.push(n.string >= 2 ? 'pop' : 'slap');
-      b.title = `${n.mute ? 'Dead note' : midiName(n.midi)} \u00b7 ${fmt(n.time)}${n.confidence < 0.75 ? ' \u00b7 uncertain' : ''}${tech.length ? ' \u00b7 ' + tech.join(', ') : ''}${n.finger ? ' \u00b7 finger ' + n.finger : ''}${n.feat ? ' \u00b7 brightness ' + n.feat.bright.toFixed(2) : ''}`;
+      b.title = `${n.mute ? 'Dead note' : midiName(n.midi)} \u00b7 ${fmt(n.time)}${n.confidence < 0.75 ? ' \u00b7 uncertain' : ''}${tech.length ? ' \u00b7 ' + tech.join(', ') : ''}${n.octaveUp ? ' \u00b7 below the low string: played ' + (n.octaveUp / 12) + ' octave up' : ''}${n.finger ? ' \u00b7 finger ' + n.finger : ''}${n.feat ? ' \u00b7 brightness ' + n.feat.bright.toFixed(2) : ''}`;
       b.setAttribute('aria-label', n.mute ? `Dead note at ${fmt(n.time)}` : `Note ${midiName(n.midi)}, ${names[n.string]} string, fret ${n.fret}, ${fmt(n.time)}${tech.length ? ', ' + tech.join(', ') : ''}`);
       b.onclick = () => onSeek(n.time);
       grid.appendChild(b);
@@ -175,6 +175,7 @@
         el('path', { d, fill: 'none', stroke: INK, 'stroke-width': 1.2 }, gMarks);
       }
       // left-hand finger number
+      if (!n.mute && n.octaveUp) text(gMarks, x, y - 23, n.octaveUp === 24 ? '15ma' : '8va', { size: 8, fill: '#b5652b', weight: 700 });
       if (opts.fingers && !n.mute && n.finger) text(gMarks, x + hw - 3, y - 13, String(n.finger), { size: 8, fill: '#8b7a66', weight: 700 });
       // note name
       if (opts.names && !n.mute) text(gMarks, x, y + 20, midiName(n.midi), { size: 8, fill: '#8b8573' });

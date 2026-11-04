@@ -51,7 +51,12 @@ const span = ns => { const f = ns.filter(n => n.fret > 0).map(n => n.fret); retu
   ok(ms < 4000, '1500 notes took ' + ms + ' ms'); console.log('  1500 notes fingered in ' + ms + ' ms'); }
 
 // 8. unplayable pitch falls back gracefully
-{ const n = mk([10, 40]); F.assign(n, E); ok(n[0].unplayable === true && n[0].string != null, 'unplayable note flagged'); }
+{ const n = mk([90, 40]); F.assign(n, E); ok(n[0].unplayable === true && n[0].string != null, 'unplayable note flagged'); }
+
+// 9. notes below the low E (5-string / drop tuning line on a 4-string) are played an octave up, not drawn as open E
+{ const n = mk([28, 26, 27, 26, 31, 26]); F.assign(n, E);
+  const low = n.filter(x => x.midi < 28), okFret = low.every(x => x.octaveUp === 12 && !x.unplayable && E[x.string] + x.fret === x.midi + 12);
+  ok(okFret && n[0].octaveUp === 0, 'below-range notes should sit an octave up: ' + low.map(x => `${x.midi}->s${x.string}f${x.fret}/${x.octaveUp}`).join(' ')); }
 
 console.log(`${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
