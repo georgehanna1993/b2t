@@ -39,6 +39,10 @@ the D2 pickup from some repeats of Play That Funky Music); dead notes must be wi
 are dropped; slap brightness skips the start-click of notes that begin from silence (threshold 0.18).
 Onset size test also accepts a rise measured over ~30 ms (`onsetLookMs`), so results no longer flip with the decode rate
 (Chrome decodes at the device rate, often 48 kHz; at 48 kHz the open E before the A1 in PTFM was lost). `test/samplerate_test.js`.
+Stem artifacts (`test/stem_artifacts_test.js`): jump detection measures steps between real voiced frames, not across bridged
+gaps (an F#1->B1 hammer-on lost its F#1); an octave-UP tail with no pluck (<8 dB rise) is folded into the note (B1 ending as 'B2');
+a dead note <70 ms before a pitched note is dropped (two-step attack); a short loud hit with no settled pitch becomes a dead note.
+Debug helper idea: spectrogram PNG with detected notes overlaid (numpy+matplotlib) is the best way to judge real files.
 
 ## Next ideas (in rough priority)
 1. "Hear the tab": play the detected notes over the song to find mistakes by ear.

@@ -44,6 +44,7 @@
     holdFrames: 10,      // a pause shorter than this inside one gesture does not split a slide (~115 ms)
     slapBright: 0.18,    // fraction of attack energy above 1.5 kHz that suggests slap/pop
     muteMaxMs: 170,
+    muteBeforeNoteMs: 70, // a dead note this close before a pitched note is that note's pluck noise (a two-step attack)
     muteMinRelDb: 19,    // a dead/ghost note must be within this many dB of the loudest notes (quieter blips are bleed)
     quietBlipDb: 24,     // short notes quieter than this (vs the loudest notes) are dropped
     vibratoMinSemis: 0.30,
@@ -191,10 +192,13 @@
       if (isNaN(mi[a]) || isNaN(mi[b])) continue;
       const net = mi[b] - mi[a];
       if (Math.abs(net) < CFG.glideMinSemis) continue;           // vibrato / wobble
+      // Steps are measured between REAL voiced frames (ms), not the bridged values: a jump across a 3-frame gap
+      // otherwise looks like four 1.3-semitone steps, i.e. neither a jump nor (with a small sag before it) a glide,
+      // and the note before it vanished (F#1 -> B1 hammer-on merged into one B1).
       let last = mi[a], maxStep = 0, maxAt = a + 1, moving = 0, good = 0, tot = 0;
       for (let q = a + 1; q <= b; q++) {
-        if (isNaN(mi[q])) continue;
-        const st = mi[q] - last; last = mi[q];
+        if (isNaN(ms[q])) continue;
+        const st = ms[q] - last; last = ms[q];
         if (Math.abs(st) > maxStep) { maxStep = Math.abs(st); maxAt = q; }
         if (Math.abs(st) >= 0.12) { moving++; tot++; if (Math.sign(st) === Math.sign(net)) good++; }
       }
@@ -262,6 +266,9 @@
       const hasGlide = between.some(e => e.type === 'glide');
       if (ad < CFG.legatoMinSemis) { piece.endIdx = R.e; piece.conf.push(...R.cs); piece.lastCount = R.count; prevR = R; continue; }
       if (Math.abs(ad - 12) < 0.7 && R.count < 4) { prevR = R; continue; } // tiny octave glitch
+      // the decaying tail of a note jumping exactly an octave UP is often the 2nd harmonic outlasting the fundamental
+      // (a B1 ending as 'B2', a D2 as 'D3'). Flagged here; analyze() drops it unless the energy shows a real pluck.
+      const octTail = k === usable.length - 1 && delta > 0 && Math.abs(ad - 12) < 0.7 && !between.some(e => e.type === 'glide');
       if (hasGlide && ad >= CFG.glideMinSemis) {
         const dir = Math.sign(delta);
         if (piece.slideToF === null) {
@@ -275,7 +282,7 @@
       } else {
         if (k === usable.length - 1 && R.count < 4) { prevR = R; continue; } // too short at the very end to trust (release artifacts)
         piece = mkPiece(R, between.length && between[0].type === 'jump' ? Math.max(prevR.e + 1, R.s - 1) : R.s);
-        piece.technique = ad <= CFG.hammerMaxSemis ? 'legato' : null; pieces.push(piece);
+        piece.technique = ad <= CFG.hammerMaxSemis ? 'legato' : null; if (octTail) piece.octaveTail = true; pieces.push(piece);
       }
       prevR = R;
     }
@@ -448,6 +455,7 @@
       }
       const vv = fr.filter(q => !isNaN(q.m)).map(q => q.m);
       if (vv.length >= 2 && vv.length <= 10 && median(vv.slice(0, 2)) - median(vv.slice(-2)) >= 1.5) { if (i % 20 === 19) { progress(10 + 85 * (i + 1) / onsets.length); await yieldUI(); } continue; } // kick-like thump
+      const before = notes.length;
       const pieces = buildPieces(fr);
       pieces.forEach((p, k) => {
         const isFirst = k === 0, time = isFirst ? tOn : Math.max(tOn, fr[p.startIdx].t - W / 2 / srD * 0.5);
@@ -456,6 +464,10 @@
         const conf = (p.conf.reduce((a, b) => a + b, 0) / p.conf.length) * (0.55 + 0.45 * lenF);
         const note = { level: segPeak - peakDb, time, mf: p.mf, midi: null, dur: Math.max(0.05, endT - time), confidence: Math.min(0.99, conf), technique: p.technique, feat: isFirst ? feat : null };
         if (!isFirst && p.technique === 'legato') { note.rise = energyRise(time); if (note.rise >= CFG.legatoMaxRiseDb) note.technique = null; }
+        if (p.octaveTail && k > 0 && energyRise(time) < CFG.legatoMaxRiseDb) { // octave-up tail with no pluck (measured: tails 1.7-2.5 dB, real plucks 14-19 dB)
+          const prev = notes[notes.length - 1]; if (prev && prev.time < time) prev.dur = Math.max(prev.dur, endT - prev.time);
+          return;
+        }
         if (note.dur < 0.12 && note.level < -CFG.quietBlipDb && p.slideToF === null) return; // very short AND very quiet: bleed, not a played note
         if (p.frames < CFG.minNoteFrames && conf < 0.8 && p.slideToF === null && !p.technique) return; // 2-3 frames of shaky pitch: noise, not a note
         if (p.slideToF !== null) { note.slideToF = p.slideToF; note.dur = Math.max(0.15, note.dur); note.technique = 'slide'; if (p.slideOut) note.slideOut = p.slideOut; }
@@ -463,6 +475,10 @@
         if (p.slideToF === null && detectVibrato(fr.slice(p.startIdx, p.endIdx + 1).map(q => q.m), srD / HOP)) note.vibrato = true;
         notes.push(note);
       });
+      // a loud, short hit whose pitch never settled (1-2 frames) gave no note at all: it is a dead note, not nothing
+      const ms_ = L * HOP / srD * 1000;
+      if (notes.length === before && ms_ <= CFG.muteMaxMs && on.od >= 8 && segPeak >= peakDb - CFG.muteMinRelDb)
+        notes.push({ time: tOn, mf: NaN, midi: null, dur: Math.max(0.05, L * HOP / srD), confidence: 0.4, technique: 'muted', mute: true, feat });
       if (i % 20 === 19) { progress(10 + 85 * (i + 1) / onsets.length); await yieldUI(); }
     }
 
@@ -492,9 +508,10 @@
       if (!n.mute && n.feat && n.feat.bright > CFG.slapBright && n.technique !== 'legato') n.technique = n.technique === 'slide' ? 'slide' : 'slap';
       if (!n.mute && n.feat && n.feat.bright > CFG.slapBright) n.slap = true;
     });
+    kept.sort((a, b) => a.time - b.time);
+    for (let k = kept.length - 2; k >= 0; k--) if (kept[k].mute && !kept[k + 1].mute && kept[k + 1].time - kept[k].time < CFG.muteBeforeNoteMs / 1000) kept.splice(k, 1);
     // muted notes inherit the previous pitch so they sit on a sensible string
     let prev = 40;
-    kept.sort((a, b) => a.time - b.time);
     kept.forEach(n => { if (n.mute) n.midi = prev; else prev = n.midi; });
 
     progress(100);
