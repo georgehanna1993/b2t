@@ -44,10 +44,13 @@
     holdFrames: 10,      // a pause shorter than this inside one gesture does not split a slide (~115 ms)
     slapBright: 0.18,    // fraction of attack energy above 1.5 kHz that suggests slap/pop
     muteMaxMs: 170,
-    ghostRiseDb: 3,       // energy rise inside a loud ringing note that marks a ghost (muted) note
+    ghostRiseDb: 3,       // energy rise inside a loud ringing note that marks a ghost (muted) note or a re-pluck
     ghostMaxBelowDb: 15,  // ...only while the note is this close to the loudest notes
-    ghostMinAgeMs: 120,
-    ghostEnergyDb: 5,     // ...and the bump must be at least this big (short-term rise, like the legato test)   // ...and this long after the note's own attack
+    ghostMinAgeMs: 120,   // ...and this long after the note's own attack
+    ghostEnergyDb: 5,     // a ghost needs at least this short-term rise (like the legato test)
+    repluckDipDb: 3,      // same pitch plucked again: energy dips this much just before the bump...
+    repluckHoldDb: 4,     // ...and is still within this much of the bump 150 ms later
+    repluckClickDb: 16,   // high-band (>1.5 kHz) click rise that marks a re-pluck (10 scores better on Come Together but adds a doubtful note to the Nov stem)
     muteBeforeNoteMs: 70, // a dead note this close before a pitched note is that note's pluck noise (a two-step attack)
     muteMinRelDb: 19,    // a dead/ghost note must be within this many dB of the loudest notes (quieter blips are bleed)
     quietBlipDb: 24,     // short notes quieter than this (vs the loudest notes) are dropped
@@ -414,7 +417,22 @@
         let isMax = true; for (let k = -3; k <= 3; k++) if (k && odL[b + k] > odL[b]) isMax = false;
         if (!isMax) continue;
         let prevO = -1e9, nextO = 1e9; sortedOn.forEach(ob => { if (ob <= b) prevO = Math.max(prevO, ob); else nextO = Math.min(nextO, ob); });
-        if ((b - prevO) * HOP / srD > CFG.ghostMinAgeMs / 1000 && (nextO - b) * HOP / srD > 0.06) add.push(b);
+        if ((b - prevO) * HOP / srD > CFG.ghostMinAgeMs / 1000 && (nextO - b) * HOP / srD > 0.06) {
+          // dip = how far the energy fell just before the bump (finger meeting the string); hold = level ~150 ms later
+          let dip = 1e9, pk = -1e9; for (let k = 1; k <= 5; k++) dip = Math.min(dip, eb[b - k]); for (let k = 0; k <= 3 && b + k < nb; k++) pk = Math.max(pk, eb[b + k]);
+          const hb = Math.min(nb - 3, b + Math.round(0.15 * srD / HOP)); let hold = -1e9; for (let q = 0; q < 3; q++) hold = Math.max(hold, eb[hb + q]);
+          add.push({ b, dip: eb[Math.max(0, b - 8)] - dip, hold: hold - pk });
+        }
+      }
+      // pluck clicks: a string re-plucked while it rings barely moves the bass energy but clicks above 1.5 kHz
+      for (let b = 6; b < nb - 3; b++) {
+        if (hRise[b] < CFG.repluckClickDb || eb[b] < peakDb - CFG.ghostMaxBelowDb) continue;
+        let isMax = true; for (let k = -4; k <= 4; k++) if (k && hRise[b + k] > hRise[b]) isMax = false;
+        if (!isMax) continue;
+        const near = add.find(c => Math.abs(c.b - b) <= 4);
+        let pk = -1e9; for (let k = 0; k <= 3 && b + k < nb; k++) pk = Math.max(pk, eb[b + k]);
+        const hb = Math.min(nb - 3, b + Math.round(0.15 * srD / HOP)); let hold = -1e9; for (let q = 0; q < 3; q++) hold = Math.max(hold, eb[hb + q]);
+        if (near) near.click = true; else add.push({ b, dip: 0, hold: hold - pk, click: true });
       }
       ghostCands = add;
     }
@@ -518,11 +536,19 @@
 
     // ghost notes: only INSIDE a pitched note that keeps its pitch (no note starts nearby) and with a real energy
     // bump (measured: the owner's ghosts 5.2-5.6 dB; sidechain/beating swells in realistic.js 2.1-4.3 dB)
-    ghostCands.forEach(b => {
+    ghostCands.forEach(({ b, dip, hold, click }) => {
       const tC = (b * HOP + 64) / srD;
       if (notes.some(n => Math.abs(n.time - tC) < 0.08)) return;
       const host = notes.find(n => !n.mute && tC > n.time + CFG.ghostMinAgeMs / 1000 && tC < n.time + n.dur + 0.03);
-      if (!host || host.slideToF != null || energyRise(tC) < CFG.ghostEnergyDb) return;
+      if (!host || host.slideToF != null) return;
+      // same-note RE-PLUCK: the finger stops the string (a dip), plucks again, and the note rings on at full level.
+      // A ghost note instead dies away (measured: owner's ghost fell 49 dB in 150 ms; Come Together re-plucks held within 2 dB)
+      if ((dip >= CFG.repluckDipDb || click) && hold >= -CFG.repluckHoldDb) {
+        const end = host.time + host.dur; host.dur = Math.max(0.05, tC - host.time);
+        notes.push({ ...host, time: tC, dur: Math.max(0.05, end - tC), technique: null, feat: null, slideIn: undefined, repluck: true });
+        return;
+      }
+      if (energyRise(tC) < CFG.ghostEnergyDb) return;
       host.dur = Math.max(0.05, tC - host.time);
       notes.push({ time: tC, mf: NaN, midi: null, dur: 0.08, confidence: 0.4, technique: 'muted', mute: true, ghost: true, feat: null });
     });

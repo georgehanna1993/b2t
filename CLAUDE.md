@@ -46,6 +46,19 @@ Ghost notes over a ringing note: an energy bump >= 3 dB (odL) while the note is 
 keeps its pitch, with a >= 5 dB short-term rise, adds an 'x' and ends the host note there. An attack on a ringing note that yields no
 pitched note is also an 'x'. Measured: owner's ghosts 5.2-5.6 dB; realistic.js swells 2.1-4.3 dB. Synthetic ghosts are only caught
 in a narrow band (~5-5.5 dB bump): bigger reads as a re-pluck, smaller is ignored.
+Same-note re-plucks while the string rings (legato eighths): a ghost candidate with a >= 3 dB dip just before it, OR a >= 16 dB
+click above 1.5 kHz, AND the level still within 4 dB 150 ms later, splits the note (a ghost instead dies away).
+
+## Scoring against real tabs (`test/score_tab.js`)
+`node test/score_tab.js samples/song.wav samples/song_ref.js [-v]` aligns detected pitches with a tab's pitch sequence (no timing
+needed) and prints per-section correct / wrong(octave) / missed / extra and precision. Reference files are written by hand from the
+owner's tabs and stay in samples/ (copyrighted). Decode MP3s like the browser does (Playwright OfflineAudioContext) at 48 and 44.1 kHz.
+| song | file | found | precision |
+|---|---|---|---|
+| Come Together (Beatles) | samples/ct48.wav + ct_ref.js | 42.9% -> 54.9% (44.1k: 56.6%) | 67.5% -> 72.8% |
+Biggest remaining losses: legato repeated eighths in the outro/solos (re-plucks invisible in the bass band), wrong pitches in the
+riff (the high F3 tied note / G-A hammer read as a slide), octave errors. repluckClickDb 10 would give 59.5% but adds a doubtful
+note to the Nov stem (14.66 s) - ask the owner.
 Debug helper idea: spectrogram PNG with detected notes overlaid (numpy+matplotlib) is the best way to judge real files.
 
 ## Next ideas (in rough priority)
