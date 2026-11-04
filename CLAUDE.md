@@ -50,6 +50,8 @@ Fret-touch blip: a +-1 semitone pitch change with no pluck (<= 110 ms) between t
 finger landing on a ringing open E sounds F for a moment (AOBTD: 17 false F1s).
 Notes below the lowest open string (5-string / drop-tuned parts on a 4-string) are fingered an octave up (`n.octaveUp`, '8va' mark
 over the fret) instead of being drawn as an open string; tested in fingering_test.js #9.
+Options: 5-string tuning (B E A D G; tabview draws `openMidis.length` strings) and an Octave select (-1/0/+1) that
+moves every pitched note (and slide targets) before fingering; `octaveApplied` in app.js tracks it, reset on each new file.
 Same-note re-plucks while the string rings (legato eighths): a ghost candidate with a >= 3 dB dip just before it, OR a >= 16 dB
 click above 1.5 kHz, AND the level still within 4 dB 150 ms later, splits the note (a ghost instead dies away).
 
@@ -73,7 +75,7 @@ Debug helper idea: spectrogram PNG with detected notes overlaid (numpy+matplotli
 2. Click a note to cycle alternative fingerings and lock the chosen ones (`fingering.assign(notes, open, {locks})` already accepts locks).
 3. Export ASCII tab / PDF; print layout.
 4. MP3 input (browser can decode it; allow the type in `app.js`/`index.html`, then test on real mp3s).
-5. 5-string / other tunings; triplet and swing grids; tempo changes.
+5. Other tunings (6-string, custom); triplet and swing grids; tempo changes.
 6. Higher accuracy: trained model (e.g. Basic Pitch) offline in Python, with the web UI only displaying results.
 
 ## Generality (owner asked: are fixes only for these WAVs?)

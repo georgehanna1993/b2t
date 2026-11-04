@@ -58,5 +58,10 @@ const span = ns => { const f = ns.filter(n => n.fret > 0).map(n => n.fret); retu
   const low = n.filter(x => x.midi < 28), okFret = low.every(x => x.octaveUp === 12 && !x.unplayable && E[x.string] + x.fret === x.midi + 12);
   ok(okFret && n[0].octaveUp === 0, 'below-range notes should sit an octave up: ' + low.map(x => `${x.midi}->s${x.string}f${x.fret}/${x.octaveUp}`).join(' ')); }
 
+// 10. 5-string bass (B E A D G): low B..D# are real notes on the B string, no octave shift; G2 stays reachable
+{ const B5 = [23, 28, 33, 38, 43], n = mk([23, 26, 27, 28, 35, 43]); F.assign(n, B5);
+  ok(n.every(x => !x.octaveUp && !x.unplayable && B5[x.string] + x.fret === x.midi) && n[0].string === 0 && n[0].fret === 0,
+    '5-string fingering: ' + n.map(x => `${x.midi}->s${x.string}f${x.fret}`).join(' ')); }
+
 console.log(`${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

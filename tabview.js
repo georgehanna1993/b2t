@@ -42,10 +42,12 @@
   function render(cfg) {
     const { grid, notes, rhythm: rh, names, opts, midiName, fmt, onSeek, openMidis } = cfg;
     grid.innerHTML = '';
-    const rowY = s => L.TOP + (3 - s) * L.GAP;
+    const nStr = (openMidis || names || [0, 0, 0, 0]).length, EXTRA = (nStr - 4) * L.GAP;
+    const RS_TOP = L.RS_TOP + EXTRA, RS_BOT = L.RS_BOT + EXTRA;
+    const rowY = s => L.TOP + (nStr - 1 - s) * L.GAP;
     const staffBottom = rowY(0);
     const withRhythm = !!opts.rhythm && !!rh;
-    const H = withRhythm ? 182 : 154;
+    const H = (withRhythm ? 182 : 154) + EXTRA;
     const xs = new Array(notes.length).fill(0), ends = new Array(notes.length).fill(0);
     if (!notes.length || !rh) { grid.style.width = '820px'; grid.style.height = H + 'px'; return { xs, ends, width: 820, height: H, cursor: null, barStarts: [] }; }
 
@@ -83,7 +85,7 @@
     grid.style.width = W + 'px'; grid.style.height = H + 'px';
 
     // staff lines (HTML so they always span the full width)
-    for (let s = 0; s < 4; s++) { const l = document.createElement('div'); l.className = 'string-line'; l.style.top = rowY(s) + 'px'; grid.appendChild(l); }
+    for (let s = 0; s < nStr; s++) { const l = document.createElement('div'); l.className = 'string-line'; l.style.top = rowY(s) + 'px'; grid.appendChild(l); }
     const svg = el('svg', { class: 'tab-svg', width: W, height: H, viewBox: `0 0 ${W} ${H}` }, grid);
     svg.setAttribute('aria-hidden', 'true');
     const gBack = el('g', {}, svg), gMarks = el('g', {}, svg);
@@ -96,7 +98,7 @@
       if (b === rh.bars) el('line', { x1: x + 4, x2: x + 4, y1: topY, y2: botY, stroke: INK, 'stroke-width': 3 }, gBack);
       if (b < rh.bars && opts.bars) text(gBack, x + 4, topY - 16, String(b + 1), { anchor: 'start', size: 9, fill: '#9b8d7a' });
     }
-    ['T', 'A', 'B'].forEach((c, i) => text(gBack, 44, L.TOP + 22 + i * 21, c, { size: 17, weight: 700 }));
+    ['T', 'A', 'B'].forEach((c, i) => text(gBack, 44, L.TOP + 22 + EXTRA / 2 + i * 21, c, { size: 17, weight: 700 }));
     const sg = rh.sig.split('/');
     text(gBack, barStart[0] + 15, L.TOP + 27, sg[0], { size: 21, weight: 700 });
     text(gBack, barStart[0] + 15, L.TOP + 27 + 25, sg[1], { size: 21, weight: 700 });
@@ -127,7 +129,7 @@
       if (n.slideOut) tech.push('slide out ' + n.slideOut);
       if (n.slideIn) tech.push('slide in from ' + (n.slideIn === 'up' ? 'below' : 'above'));
       if (n.vibrato) tech.push('vibrato');
-      if (n.slap) tech.push(n.string >= 2 ? 'pop' : 'slap');
+      if (n.slap) tech.push(n.string >= nStr - 2 ? 'pop' : 'slap');
       b.title = `${n.mute ? 'Dead note' : midiName(n.midi)} \u00b7 ${fmt(n.time)}${n.confidence < 0.75 ? ' \u00b7 uncertain' : ''}${tech.length ? ' \u00b7 ' + tech.join(', ') : ''}${n.octaveUp ? ' \u00b7 below the low string: played ' + (n.octaveUp / 12) + ' octave up' : ''}${n.finger ? ' \u00b7 finger ' + n.finger : ''}${n.feat ? ' \u00b7 brightness ' + n.feat.bright.toFixed(2) : ''}`;
       b.setAttribute('aria-label', n.mute ? `Dead note at ${fmt(n.time)}` : `Note ${midiName(n.midi)}, ${names[n.string]} string, fret ${n.fret}, ${fmt(n.time)}${tech.length ? ', ' + tech.join(', ') : ''}`);
       b.onclick = () => onSeek(n.time);
@@ -167,7 +169,7 @@
         el('line', { x1: x - hw - 2 - 17, y1: y + (fromBelow ? 7 : -7), x2: x - hw - 2, y2: y + (fromBelow ? -5 : 5), stroke: INK, 'stroke-width': 1.5, 'stroke-linecap': 'round' }, gMarks);
       }
       // slap / pop letter above the staff
-      if (n.slap) text(gMarks, x, L.TOP - 14, n.string >= 2 ? 'P' : 'S', { size: 12, weight: 700, title: n.string >= 2 ? 'Pop' : 'Slap' });
+      if (n.slap) text(gMarks, x, L.TOP - 14, n.string >= nStr - 2 ? 'P' : 'S', { size: 12, weight: 700, title: n.string >= nStr - 2 ? 'Pop' : 'Slap' });
       // vibrato squiggle above the staff
       if (n.vibrato) {
         const nextEv = rh.events.find(q => q.u > e.u && q.kind !== 'rest'), len = Math.max(24, Math.min(110, (nextEv ? nextEv.x : x + 90) - x - 14));
@@ -186,19 +188,19 @@
       const beamable = len => len <= 3, beatU = rh.beatU;
       const stemX = e => e.x;
       const flag = (x, n16) => { // flag(s) at the bottom of a stem
-        for (let k = 0; k < n16; k++) el('path', { d: `M ${x} ${L.RS_BOT - k * 5} q 7 3 6 11`, fill: 'none', stroke: INK, 'stroke-width': 1.8, 'stroke-linecap': 'round' }, gMarks);
+        for (let k = 0; k < n16; k++) el('path', { d: `M ${x} ${RS_BOT - k * 5} q 7 3 6 11`, fill: 'none', stroke: INK, 'stroke-width': 1.8, 'stroke-linecap': 'round' }, gMarks);
       };
       for (let b = 0; b < rh.bars; b++) {
         const evs = barsEv[b]; let group = [];
         const flush = () => {
           if (group.length >= 2) {
             const x1 = stemX(group[0]), x2 = stemX(group[group.length - 1]);
-            el('line', { x1, x2, y1: L.RS_BOT, y2: L.RS_BOT, stroke: INK, 'stroke-width': 3 }, gMarks);
+            el('line', { x1, x2, y1: RS_BOT, y2: RS_BOT, stroke: INK, 'stroke-width': 3 }, gMarks);
             group.forEach((g, k) => {
               if (g.len !== 1) return;
               const nx = group[k + 1], pv = group[k - 1];
-              if (nx && nx.len === 1) el('line', { x1: stemX(g), x2: stemX(nx), y1: L.RS_BOT - 5.5, y2: L.RS_BOT - 5.5, stroke: INK, 'stroke-width': 3 }, gMarks);
-              else if (!(pv && pv.len === 1)) { const dir = nx ? 1 : -1; el('line', { x1: stemX(g), x2: stemX(g) + dir * 8, y1: L.RS_BOT - 5.5, y2: L.RS_BOT - 5.5, stroke: INK, 'stroke-width': 3 }, gMarks); }
+              if (nx && nx.len === 1) el('line', { x1: stemX(g), x2: stemX(nx), y1: RS_BOT - 5.5, y2: RS_BOT - 5.5, stroke: INK, 'stroke-width': 3 }, gMarks);
+              else if (!(pv && pv.len === 1)) { const dir = nx ? 1 : -1; el('line', { x1: stemX(g), x2: stemX(g) + dir * 8, y1: RS_BOT - 5.5, y2: RS_BOT - 5.5, stroke: INK, 'stroke-width': 3 }, gMarks); }
             });
           } else if (group.length === 1) flag(stemX(group[0]), group[0].len === 1 ? 2 : 1);
           group = [];
@@ -206,10 +208,10 @@
         evs.forEach(e => {
           if (e.kind === 'rest') { flush(); drawRest(e, rh.barU); return; }
           const x = stemX(e);
-          if (e.len < 16) el('line', { x1: x, x2: x, y1: L.RS_TOP, y2: L.RS_BOT, stroke: INK, 'stroke-width': 1.3 }, gMarks);
-          else el('circle', { cx: x, cy: L.RS_BOT - 4, r: 3.6, fill: 'none', stroke: INK, 'stroke-width': 1.3 }, gMarks);
-          if (e.len >= 8 && e.len < 16) el('ellipse', { cx: x, cy: L.RS_BOT + 3, rx: 3.6, ry: 2.6, fill: '#fff4dc', stroke: INK, 'stroke-width': 1.3 }, gMarks); // half note: hollow head
-          if ([3, 6, 12].includes(e.len)) el('circle', { cx: x + 7, cy: L.RS_BOT + (e.len >= 8 ? 3 : -2), r: 1.5, fill: INK }, gMarks);
+          if (e.len < 16) el('line', { x1: x, x2: x, y1: RS_TOP, y2: RS_BOT, stroke: INK, 'stroke-width': 1.3 }, gMarks);
+          else el('circle', { cx: x, cy: RS_BOT - 4, r: 3.6, fill: 'none', stroke: INK, 'stroke-width': 1.3 }, gMarks);
+          if (e.len >= 8 && e.len < 16) el('ellipse', { cx: x, cy: RS_BOT + 3, rx: 3.6, ry: 2.6, fill: '#fff4dc', stroke: INK, 'stroke-width': 1.3 }, gMarks); // half note: hollow head
+          if ([3, 6, 12].includes(e.len)) el('circle', { cx: x + 7, cy: RS_BOT + (e.len >= 8 ? 3 : -2), r: 1.5, fill: INK }, gMarks);
           const beat = Math.floor(e.pos / beatU);
           if (beamable(e.len)) {
             if (group.length && Math.floor(group[0].pos / beatU) !== beat) flush();
@@ -219,7 +221,7 @@
         flush();
       }
       function drawRest(e, barU) {
-        const x = e.x, y = (L.RS_TOP + L.RS_BOT) / 2, len = e.len;
+        const x = e.x, y = (RS_TOP + RS_BOT) / 2, len = e.len;
         if (len >= barU || len === 16) { el('rect', { x: x - 6, y: y - 6, width: 12, height: 4.5, fill: INK }, gMarks); el('line', { x1: x - 9, x2: x + 9, y1: y - 6, y2: y - 6, stroke: INK, 'stroke-width': 1 }, gMarks); }
         else if (len >= 8) { el('rect', { x: x - 6, y: y - 1.5, width: 12, height: 4.5, fill: INK }, gMarks); el('line', { x1: x - 9, x2: x + 9, y1: y + 3, y2: y + 3, stroke: INK, 'stroke-width': 1 }, gMarks); }
         else if (len >= 4) el('path', { d: `M ${x - 2} ${y - 9} l 5 5 l -5 5 l 5 6 q -6 0 -5 5`, fill: 'none', stroke: INK, 'stroke-width': 1.8, 'stroke-linejoin': 'round' }, gMarks);
@@ -238,7 +240,7 @@
 
     // sticky string labels
     const labels = document.createElement('div'); labels.className = 'string-labels';
-    for (let s = 0; s < 4; s++) { const sp = document.createElement('span'); sp.className = 'string-label'; sp.style.top = rowY(s) + 'px'; sp.textContent = names[s]; labels.appendChild(sp); }
+    for (let s = 0; s < nStr; s++) { const sp = document.createElement('span'); sp.className = 'string-label'; sp.style.top = rowY(s) + 'px'; sp.textContent = names[s]; labels.appendChild(sp); }
     grid.appendChild(labels);
 
     return { xs, ends, width: W, height: H, cursor, barStarts: barStart };

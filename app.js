@@ -6,10 +6,14 @@ const demoMidi=[40,40,43,45,47,45,43,40,40,40,43,45,47,50,47,45,43,43,45,47,45,4
 const demoTimes=demoMidi.map((m,i)=>({time:i*.5,midi:m,dur:.43,confidence:i%7===5?.66:.91}));
 function midiName(m){return noteNames[((m%12)+12)%12]+(Math.floor(m/12)-1)}
 function fmt(t){if(!isFinite(t))t=0;return `${String(Math.floor(t/60)).padStart(2,'0')}:${String(Math.floor(t%60)).padStart(2,'0')}`}
-function strings(){return tuningSelect.value==='D'?[26,31,36,41]:tuningSelect.value==='dropD'?[26,33,38,43]:[28,33,38,43]}
+const TUNINGS={E:{m:[28,33,38,43],n:['E','A','D','G']},D:{m:[26,31,36,41],n:['D','G','C','F']},dropD:{m:[26,33,38,43],n:['D','A','D','G']},B5:{m:[23,28,33,38,43],n:['B','E','A','D','G']}};
+function strings(){return (TUNINGS[tuningSelect.value]||TUNINGS.E).m}
+let octaveApplied=0;                                              // semitones the current notes are moved from the detected pitch
+function applyOctave(){const want=12*(+(document.getElementById('octaveSelect')||{value:0}).value||0),d=want-octaveApplied;if(!d)return;
+  notes.forEach(n=>{if(n.mute)return;n.midi+=d;if(n.slideTo!=null)n.slideTo+=d;});octaveApplied=want}
 const rhythmState={bpm:100,origin:0,sig:'4/4',shiftBeats:0,conf:0,auto:true};
 let noteEnds=[],tabInfo=null,showRhythm=true,showFingers=false;
-function stringNames(){return tuningSelect.value==='D'?['D','G','C','F']:tuningSelect.value==='dropD'?['D','A','D','G']:['E','A','D','G']}
+function stringNames(){return (TUNINGS[tuningSelect.value]||TUNINGS.E).n}
 function autoRhythm(){ // estimate tempo + where bar 1 starts from the notes
   if(!notes.length)return;
   const est=LowlineRhythm.estimate(notes);
@@ -23,6 +27,7 @@ function syncRhythmControls(){
 }
 function buildTab(){
   const grid=document.getElementById('tabGrid');
+  applyOctave();
   LowlineFingering.assign(notes,strings());                       // string + fret + finger, repeated phrases identical
   const beatSec=60/rhythmState.bpm;
   const rh=notes.length?LowlineRhythm.build(notes,{bpm:rhythmState.bpm,origin:rhythmState.origin+rhythmState.shiftBeats*beatSec,sig:rhythmState.sig}):null;
@@ -57,7 +62,7 @@ async function play(){if(playing)return;if(!audio.src)return toast('Choose the d
 function setPosition(t){t=Math.max(0,Math.min(duration,t));audio.currentTime=t;if(!audio.src)window.lastDemoNote=-1;const pct=duration?t/duration*100:0;document.getElementById('waveCursor').style.left=pct+'%';document.getElementById('waveProgress').style.width=pct+'%';document.getElementById('currentTime').textContent=fmt(t);let i=-1;for(let j=0;j<notes.length;j++)if(notes[j].time<=t)i=j;if(i!==currentIndex)highlight(i);syncTab(t)}
 function seek(t){setPosition(t);if(playing){pause();play()}}
 function buildDemoWav(){const sr=44100,count=Math.ceil(duration*sr),samples=new Float32Array(count);demoTimes.forEach((n,k)=>{const from=Math.floor(n.time*sr),next=demoTimes[k+1]?.time??duration,to=Math.min(count,Math.floor(next*sr)),f=440*Math.pow(2,(n.midi-69)/12);for(let i=from;i<to;i++){const t=(i-from)/sr,attack=Math.min(1,t/.004),env=attack*Math.exp(-t*4.1),tone=Math.sin(2*Math.PI*f*t)*.58+Math.sin(4*Math.PI*f*t)*.25+Math.sin(6*Math.PI*f*t)*.11+Math.sin(8*Math.PI*f*t)*.045;samples[i]+=tone*env*.72}});const ab=new ArrayBuffer(44+count*2),v=new DataView(ab),write=(o,s)=>{for(let i=0;i<s.length;i++)v.setUint8(o+i,s.charCodeAt(i))};write(0,'RIFF');v.setUint32(4,36+count*2,true);write(8,'WAVE');write(12,'fmt ');v.setUint32(16,16,true);v.setUint16(20,1,true);v.setUint16(22,1,true);v.setUint32(24,sr,true);v.setUint32(28,sr*2,true);v.setUint16(32,2,true);v.setUint16(34,16,true);write(36,'data');v.setUint32(40,count*2,true);for(let i=0;i<count;i++)v.setInt16(44+i*2,Math.round(Math.max(-1,Math.min(1,samples[i]))*32767),true);return new Blob([ab],{type:'audio/wav'})}
-function makeDemo(){pause();decoded=null;duration=16;notes=demoTimes.map(x=>({...x}));loopStart=2;loopEnd=6;if(demoUrl)URL.revokeObjectURL(demoUrl);demoUrl=URL.createObjectURL(buildDemoWav());audio.src=demoUrl;audio.load();audio.currentTime=0;audio.preservesPitch=true;document.getElementById('trackName').innerHTML='Pocket groove <span>—</span> Lowline session';document.getElementById('trackSub').textContent='Demo bass · E standard tuning';document.getElementById('demoPill').style.display='';document.getElementById('playerSection').classList.add('visible');setWave(demoWave());autoRhythm();buildTab();seek(0);}
+function makeDemo(){pause();decoded=null;duration=16;notes=demoTimes.map(x=>({...x}));octaveApplied=0;loopStart=2;loopEnd=6;if(demoUrl)URL.revokeObjectURL(demoUrl);demoUrl=URL.createObjectURL(buildDemoWav());audio.src=demoUrl;audio.load();audio.currentTime=0;audio.preservesPitch=true;document.getElementById('trackName').innerHTML='Pocket groove <span>—</span> Lowline session';document.getElementById('trackSub').textContent='Demo bass · E standard tuning';document.getElementById('demoPill').style.display='';document.getElementById('playerSection').classList.add('visible');setWave(demoWave());autoRhythm();buildTab();seek(0);}
 function toast(s){let t=document.getElementById('toast');t.textContent=s;t.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.classList.remove('show'),2600)}
 function updateAnalysis(pct,label){document.getElementById('analysisBar').style.width=`${pct}%`;document.getElementById('progressPct').textContent=`${Math.round(pct)}%`;document.getElementById('analysisText').textContent=label}
 async function analyze(file){
@@ -79,7 +84,7 @@ async function analyze(file){
     updateAnalysis(8,'Listening for note attacks and pitch…');
     const channels=[];for(let c=0;c<buf.numberOfChannels;c++)channels.push(buf.getChannelData(c));
     const result=await LowlineAnalysis.analyze(channels,buf.sampleRate,{onProgress:p=>updateAnalysis(Math.min(92,p),'Listening for note attacks and pitch…')});
-    notes=result.notes;window.lowlineDebug=result; // inspect in the console: lowlineDebug.notes
+    notes=result.notes;octaveApplied=0;window.lowlineDebug=result; // inspect in the console: lowlineDebug.notes
     if(!notes.length)throw new Error('No stable bass pitch found. Try a cleaner isolated bass WAV.');
     updateAnalysis(94,'Drawing the waveform and laying out the tab…');
     await new Promise(r=>setTimeout(r,0));
@@ -105,7 +110,7 @@ waveform.addEventListener('pointermove',e=>{if(dragging)setPosition(at(e))});
 const end=e=>{if(!dragging)return;dragging=false;try{waveform.releasePointerCapture(e.pointerId)}catch{}if(resume){resume=false;play()}};
 waveform.addEventListener('pointerup',end);waveform.addEventListener('pointercancel',end)})();waveform.onkeydown=e=>{if(e.key==='ArrowRight')seek(audio.currentTime+1);if(e.key==='ArrowLeft')seek(audio.currentTime-1);if(e.key==='Home')seek(0);if(e.key==='End')seek(duration)};
 document.getElementById('speedSelect').onchange=e=>{speed=+e.target.value;if(audio.src)audio.playbackRate=speed;if(playing&&!audio.src){pause();play()}};
-document.getElementById('loopBtn').onclick=e=>{loopOn=!loopOn;e.currentTarget.setAttribute('aria-pressed',loopOn)};tuningSelect.onchange=buildTab;document.getElementById('noteNamesBtn').onclick=e=>{showNames=!showNames;e.currentTarget.setAttribute('aria-pressed',showNames);buildTab()};document.getElementById('barsBtn').onclick=e=>{showBars=!showBars;e.currentTarget.setAttribute('aria-pressed',showBars);buildTab()};document.getElementById('rhythmBtn').onclick=e=>{showRhythm=!showRhythm;e.currentTarget.setAttribute('aria-pressed',showRhythm);buildTab()};
+document.getElementById('loopBtn').onclick=e=>{loopOn=!loopOn;e.currentTarget.setAttribute('aria-pressed',loopOn)};tuningSelect.onchange=buildTab;document.getElementById('octaveSelect').onchange=buildTab;document.getElementById('noteNamesBtn').onclick=e=>{showNames=!showNames;e.currentTarget.setAttribute('aria-pressed',showNames);buildTab()};document.getElementById('barsBtn').onclick=e=>{showBars=!showBars;e.currentTarget.setAttribute('aria-pressed',showBars);buildTab()};document.getElementById('rhythmBtn').onclick=e=>{showRhythm=!showRhythm;e.currentTarget.setAttribute('aria-pressed',showRhythm);buildTab()};
 document.getElementById('fingersBtn').onclick=e=>{showFingers=!showFingers;e.currentTarget.setAttribute('aria-pressed',showFingers);buildTab()};
 document.getElementById('bpmInput').onchange=e=>{const v=parseFloat(e.target.value);if(v>=30&&v<=300){const keepBar1=rhythmState.origin;rhythmState.bpm=v;rhythmState.origin=keepBar1;rhythmState.auto=false;syncRhythmControls();buildTab()}else syncRhythmControls()};
 document.getElementById('sigSelect').onchange=e=>{rhythmState.sig=e.target.value;buildTab()};
