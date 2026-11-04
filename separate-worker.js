@@ -29,10 +29,11 @@ onmessage = async ev => {
   const m = ev.data;
   if (m.cmd !== 'separate') return;
   try {
-    const weights = await fetchModel(m.modelUrl);
+    let weights = await fetchModel(m.modelUrl);
     let model = null, backend = 'wasm';
     if (self.navigator.gpu && !m.cpuOnly) { try { model = await LowlineDemucs.ONNXHTDemucs.init(weights, ['webgpu']); backend = 'webgpu'; } catch (e) { model = null; } }
     if (!model) model = await LowlineDemucs.ONNXHTDemucs.init(weights, ['wasm']);
+    weights = null; // the session holds its own copy
     postMessage({ type: 'progress', phase: 'separate', done: 0, total: 1, backend });
     const [left, right] = await LowlineDemucs.separateOne(model, [m.left, m.right], 'bass', (d, t) => postMessage({ type: 'progress', phase: 'separate', done: d, total: t, backend }));
     postMessage({ type: 'done', left, right, backend }, [left.buffer === right.buffer ? left.buffer : left.buffer]);

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#0f3d2e" />
   <title>Lowline — bass tabs from your audio</title>
-  <script>window.coi={coepCredentialless:()=>true,quiet:true};</script><script src="coi-serviceworker.js"></script><!-- enables multi-threaded bass separation on GitHub Pages -->
+  <script>window.coi={coepCredentialless:()=>true,quiet:true,doReload:()=>{if(!window.lowlineBusy)location.reload()}};/* never reload while a song is loaded or being analyzed */</script><script src="coi-serviceworker.js"></script><!-- enables multi-threaded bass separation on GitHub Pages -->
   <link rel="preconnect" href="https://fonts.googleapis.com" /><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Archivo:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="styles.css" />
