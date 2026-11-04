@@ -62,6 +62,14 @@ Settings live in a slide-in "View & settings" panel (floating button; bottom she
 stems, no bar numbers. "Tab + notation" adds a bass-clef staff (written an octave up, beamed per beat). Clicking a tab number,
 a notation head or any mark (H/P, slide, slap, vibrato; `.mark-hit` boxes) plays just that note (`playClip` in app.js).
 
+Full songs (Nov 2026): "Full song" mode separates the bass in the browser with HTDemucs v4 before analysis
+(`separate-worker.js` + `vendor/demucs.js` (bakkot/demucs-js, MIT, bass-only overlap-add) + `vendor/ort` (onnxruntime-web 1.22)
++ `models/htdemucs_w16.onnx` (weights stored fp16, cast to fp32 on load: 90.5 MB, output = full model, 84 dB SNR)). Model is cached
+with the Cache API. WebGPU first, else multi-threaded WASM (needs cross-origin isolation: `coi-serviceworker.js`). `?cpu=1` forces WASM.
+Player gets a Bass only / Full mix switch. WEIGHTS ARE META'S, PERSONAL/RESEARCH USE ONLY (models/README.txt).
+Measured on Come Together full mix vs tab: own stem 56.6% found / 73.2% precision; Demucs bass 52.6% / 77.6% (fp16 weights identical;
+int8 52.3% / 77.7% but audibly different, 15.5 dB). Speed: headless WASM, 3 threads: 30 s of audio in ~90 s; real-GPU speed not measured.
+
 ## Scoring against real tabs (`test/score_tab.js`)
 `node test/score_tab.js samples/song.wav samples/song_ref.js [-v]` aligns detected pitches with a tab's pitch sequence (no timing
 needed) and prints per-section correct / wrong(octave) / missed / extra and precision. Reference files are written by hand from the
@@ -81,7 +89,7 @@ Debug helper idea: spectrogram PNG with detected notes overlaid (numpy+matplotli
 1. "Hear the tab": synth the detected notes over the song (clicking a note already plays its clip of the recording).
 2. Click a note to cycle alternative fingerings and lock the chosen ones (`fingering.assign(notes, open, {locks})` already accepts locks).
 3. Export ASCII tab / PDF; print layout.
-4. (done) MP3 / m4a / ogg / flac input via decodeAudioData; files up to 10 min.
+4. (done) Full-song bass separation; MP3 / m4a / ogg / flac input via decodeAudioData; files up to 10 min.
 5. Other tunings (6-string, custom); triplet and swing grids; tempo changes.
 6. Higher accuracy: trained model (e.g. Basic Pitch) offline in Python, with the web UI only displaying results.
 

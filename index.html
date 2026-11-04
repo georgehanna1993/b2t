@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#0f3d2e" />
   <title>Lowline — bass tabs from your audio</title>
+  <script>window.coi={coepCredentialless:()=>true,quiet:true};</script><script src="coi-serviceworker.js"></script><!-- enables multi-threaded bass separation on GitHub Pages -->
   <link rel="preconnect" href="https://fonts.googleapis.com" /><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Archivo:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="styles.css" />
@@ -16,7 +17,8 @@
       <h1>LOW<br>END<br>THEORY</h1>
       <div class="hero-side" id="upload">
         <p class="lead">Feed it a bass track. Get back the notes, the fingering and the groove, on one page you can play along to.</p>
-        <button class="drop" id="dropzone"><input id="fileInput" type="file" accept="audio/*,.mp3,.wav,.m4a,.ogg,.flac" hidden /><span class="drop-plus">+</span><span><b>Drop an MP3 or WAV</b><small>isolated bass works best · up to 10 minutes</small></span></button>
+        <button class="drop" id="dropzone"><input id="fileInput" type="file" accept="audio/*,.mp3,.wav,.m4a,.ogg,.flac" hidden /><span class="drop-plus">+</span><span><b>Drop an MP3 or WAV</b><small>a full song or a bass track · up to 10 minutes</small></span></button>
+        <div class="src-choice" role="group" aria-label="What are you dropping?"><span>It is a</span><button data-src="full" aria-pressed="true">Full song</button><button data-src="bass" aria-pressed="false">Bass-only track</button></div>
         <button class="demo" id="demoBtn"><span class="demo-play">▶</span> or try the demo groove</button>
         <p class="status" id="statusLine"><span id="statusText">Your audio never leaves your device.</span><button id="dismissStatus" aria-label="Dismiss">×</button></p>
         <div class="analysis-progress" id="analysisProgress" hidden><div class="progress-caption"><span id="analysisText">Listening to your track…</span><b id="progressPct">0%</b></div><div class="progress-track"><i id="analysisBar"></i></div></div>
@@ -26,6 +28,7 @@
     <section class="practice" id="playerSection" aria-label="Bass tab practice player">
       <div class="songline">
         <div><p class="kicker">NOW LEARNING <i id="demoPill">· DEMO</i></p><h2 id="trackName">Pocket groove <span>—</span> Lowline session</h2><p id="trackSub">Estimated notes · E standard bass</p></div>
+        <div class="mix-switch" id="mixSwitch" role="group" aria-label="What to hear" hidden><button data-mix="bass" aria-pressed="true">Bass only</button><button data-mix="full" aria-pressed="false">Full mix</button></div>
         <button class="play-round" id="playBtn" aria-label="Play"><span>▶</span></button>
       </div>
       <div class="timeline-wrap"><div class="timeline-meta"><span id="currentTime">00:00</span><span id="durationLabel">00:16</span></div><div class="waveform" id="waveform" role="slider" tabindex="0" aria-label="Audio timeline" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><canvas id="waveCanvas"></canvas><div class="wave-progress" id="waveProgress"></div><div class="wave-cursor" id="waveCursor"></div></div></div>
@@ -61,7 +64,7 @@
     </aside>
 
     <div class="phone-note" id="mobileCurrent"><span>NOW</span><b>—</b></div>
-    <aside class="fine-print"><p><b>Use your ears, too.</b> Audio-to-tab is an estimate: a question mark means a note is less certain. Click it and listen.</p><a href="#" id="futureLink">Full songs: later</a></aside>
+    <aside class="fine-print"><p><b>Use your ears, too.</b> Audio-to-tab is an estimate: a question mark means a note is less certain. Click it and listen.</p><a href="#" id="futureLink">About the bass separation</a></aside>
   </main>
   <footer><span>LOWLINE</span><span>MADE FOR THE LOW NOTES · 2026</span></footer>
   <audio id="audioPlayer" preload="auto"></audio><div class="toast" id="toast" role="status"></div><script src="analysis.js"></script><script src="fingering.js"></script><script src="rhythm.js"></script><script src="tabview.js"></script><script src="app.js"></script>

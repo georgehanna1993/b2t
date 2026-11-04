@@ -62,7 +62,7 @@ async function play(){clipEnd=null;if(playing)return;if(!audio.src)return toast(
 function setPosition(t){t=Math.max(0,Math.min(duration,t));audio.currentTime=t;if(!audio.src)window.lastDemoNote=-1;const pct=duration?t/duration*100:0;document.getElementById('waveCursor').style.left=pct+'%';document.getElementById('waveProgress').style.width=pct+'%';document.getElementById('currentTime').textContent=fmt(t);let i=-1;for(let j=0;j<notes.length;j++)if(notes[j].time<=t)i=j;if(i!==currentIndex)highlight(i);syncTab(t)}
 function seek(t){setPosition(t);if(playing){pause();play()}}
 function buildDemoWav(){const sr=44100,count=Math.ceil(duration*sr),samples=new Float32Array(count);demoTimes.forEach((n,k)=>{const from=Math.floor(n.time*sr),next=demoTimes[k+1]?.time??duration,to=Math.min(count,Math.floor(next*sr)),f=440*Math.pow(2,(n.midi-69)/12);for(let i=from;i<to;i++){const t=(i-from)/sr,attack=Math.min(1,t/.004),env=attack*Math.exp(-t*4.1),tone=Math.sin(2*Math.PI*f*t)*.58+Math.sin(4*Math.PI*f*t)*.25+Math.sin(6*Math.PI*f*t)*.11+Math.sin(8*Math.PI*f*t)*.045;samples[i]+=tone*env*.72}});const ab=new ArrayBuffer(44+count*2),v=new DataView(ab),write=(o,s)=>{for(let i=0;i<s.length;i++)v.setUint8(o+i,s.charCodeAt(i))};write(0,'RIFF');v.setUint32(4,36+count*2,true);write(8,'WAVE');write(12,'fmt ');v.setUint32(16,16,true);v.setUint16(20,1,true);v.setUint16(22,1,true);v.setUint32(24,sr,true);v.setUint32(28,sr*2,true);v.setUint16(32,2,true);v.setUint16(34,16,true);write(36,'data');v.setUint32(40,count*2,true);for(let i=0;i<count;i++)v.setInt16(44+i*2,Math.round(Math.max(-1,Math.min(1,samples[i]))*32767),true);return new Blob([ab],{type:'audio/wav'})}
-function makeDemo(){pause();decoded=null;duration=16;notes=demoTimes.map(x=>({...x}));octaveApplied=0;loopStart=2;loopEnd=6;if(demoUrl)URL.revokeObjectURL(demoUrl);demoUrl=URL.createObjectURL(buildDemoWav());audio.src=demoUrl;audio.load();audio.currentTime=0;audio.preservesPitch=true;document.getElementById('trackName').innerHTML='Pocket groove <span>—</span> Lowline session';document.getElementById('trackSub').textContent='Demo bass · E standard tuning';document.getElementById('demoPill').style.display='';document.getElementById('playerSection').classList.add('visible');setWave(demoWave());autoRhythm();buildTab();seek(0);}
+function makeDemo(){pause();setBassSwitch(false);decoded=null;duration=16;notes=demoTimes.map(x=>({...x}));octaveApplied=0;loopStart=2;loopEnd=6;if(demoUrl)URL.revokeObjectURL(demoUrl);demoUrl=URL.createObjectURL(buildDemoWav());audio.src=demoUrl;audio.load();audio.currentTime=0;audio.preservesPitch=true;document.getElementById('trackName').innerHTML='Pocket groove <span>—</span> Lowline session';document.getElementById('trackSub').textContent='Demo bass · E standard tuning';document.getElementById('demoPill').style.display='';document.getElementById('playerSection').classList.add('visible');setWave(demoWave());autoRhythm();buildTab();seek(0);}
 function toast(s){let t=document.getElementById('toast');t.textContent=s;t.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.classList.remove('show'),2600)}
 function updateAnalysis(pct,label){document.getElementById('analysisBar').style.width=`${pct}%`;document.getElementById('progressPct').textContent=`${Math.round(pct)}%`;document.getElementById('analysisText').textContent=label}
 async function analyze(file){
@@ -76,29 +76,43 @@ async function analyze(file){
   try{
     const AC=window.AudioContext||window.webkitAudioContext;
     if(!AC)throw new Error('Audio decoding is not supported in this browser.');
-    const arr=await file.arrayBuffer(),ac=window.audioContext||(window.audioContext=new AC()),buf=await ac.decodeAudioData(arr.slice(0));
-    if(buf.duration>600)throw new Error('Please use a file shorter than ten minutes.');
+    const arr=await file.arrayBuffer();
+    const full=srcMode==='full';
+    if(objectUrl)URL.revokeObjectURL(objectUrl);if(bassUrl)URL.revokeObjectURL(bassUrl);bassUrl=null;
+    objectUrl=URL.createObjectURL(file);
+    let buf,channels,rate;
+    if(full){                                                       // full song: separate the bass first (HTDemucs, 44.1 kHz stereo)
+      const off=new OfflineAudioContext(2,1,44100);buf=await off.decodeAudioData(arr.slice(0));
+      if(buf.duration>600)throw new Error('Please use a file shorter than ten minutes.');
+      const L=buf.getChannelData(0),R=buf.numberOfChannels>1?buf.getChannelData(1):L;
+      const bass=await separateBass(L,R,(pct,label)=>updateAnalysis(pct,label));
+      channels=[bass.left,bass.right];rate=44100;
+      bassUrl=URL.createObjectURL(wavBlob(channels,rate));
+    }else{
+      const ac=window.audioContext||(window.audioContext=new AC());buf=await ac.decodeAudioData(arr.slice(0));
+      if(buf.duration>600)throw new Error('Please use a file shorter than ten minutes.');
+      channels=[];for(let c=0;c<buf.numberOfChannels;c++)channels.push(buf.getChannelData(c));rate=buf.sampleRate;
+    }
     decoded=buf;duration=buf.duration;customDuration=duration;loopStart=duration*.2;loopEnd=Math.min(duration,loopStart+4);
-    if(objectUrl)URL.revokeObjectURL(objectUrl);
-    objectUrl=URL.createObjectURL(file);audio.src=objectUrl;audio.load();audio.preservesPitch=true;
-    updateAnalysis(8,'Listening for note attacks and pitch…');
-    const channels=[];for(let c=0;c<buf.numberOfChannels;c++)channels.push(buf.getChannelData(c));
-    const result=await LowlineAnalysis.analyze(channels,buf.sampleRate,{onProgress:p=>updateAnalysis(Math.min(92,p),'Listening for note attacks and pitch…')});
+    hearBass=full;setSource();setBassSwitch(full);
+    const a0=full?72:8;
+    updateAnalysis(a0,'Listening for note attacks and pitch…');
+    const result=await LowlineAnalysis.analyze(channels,rate,{onProgress:p=>updateAnalysis(Math.min(92,a0+(92-a0)*p/92),'Listening for note attacks and pitch…')});
     notes=result.notes;octaveApplied=0;window.lowlineDebug=result; // inspect in the console: lowlineDebug.notes
-    if(!notes.length)throw new Error('No stable bass pitch found. Try a cleaner isolated bass track.');
+    if(!notes.length)throw new Error('No stable bass pitch found. Try another file.');
     updateAnalysis(94,'Drawing the waveform and laying out the tab…');
     await new Promise(r=>setTimeout(r,0));
-    const src=buf.getChannelData(0),peaks=new Float32Array(1800),bucket=Math.ceil(src.length/peaks.length);let max=0;
+    const src=channels[0],peaks=new Float32Array(1800),bucket=Math.ceil(src.length/peaks.length);let max=0;
     for(let i=0;i<peaks.length;i++){let p=0,sum=0,n=0;const start=i*bucket,end=Math.min(src.length,start+bucket);for(let j=start;j<end;j++){const v=Math.abs(src[j]);if(v>p)p=v;sum+=v*v;n++}peaks[i]=n?Math.max(p*.82,Math.sqrt(sum/n)*1.4):0;if(peaks[i]>max)max=peaks[i]}
     if(max>0)for(let i=0;i<peaks.length;i++)peaks[i]=Math.pow(peaks[i]/max,.72);
     document.getElementById('trackName').innerHTML=`${file.name.replace(/</g,'&lt;')} <span>—</span> your bassline`;
-    document.getElementById('trackSub').textContent='Estimated tab · original audio playback · click a note to hear it';
+    document.getElementById('trackSub').textContent=full?'Bass separated from the full song · click a note to hear it':'Estimated tab · click a note to hear it';
     document.getElementById('demoPill').style.display='none';
     setWave(peaks);autoRhythm();buildTab();seek(0);updateAnalysis(100,'Analysis complete');
     sl.textContent=`Found ${notes.length} notes. Click any number or mark to hear just that note.`;
     document.getElementById('playerSection').classList.add('visible');progress.hidden=true;
     document.getElementById('playerSection').scrollIntoView({behavior:'smooth',block:'nearest'});
-  }catch(e){sl.textContent=e.message||'This file could not be analyzed. Try an MP3 or WAV of the isolated bass.';progress.hidden=true;toast(e.message||'Could not analyze this file.')}
+  }catch(e){sl.textContent=e.message||'This file could not be analyzed. Try another MP3 or WAV.';progress.hidden=true;toast(e.message||'Could not analyze this file.')}
   finally{document.getElementById('dropzone').disabled=false;document.getElementById('demoBtn').disabled=false}
 }
 document.getElementById('demoBtn').onclick=()=>{makeDemo();document.getElementById('statusText').textContent='Demo groove ready. Press play to hear the bass and follow along.';document.getElementById('playerSection').scrollIntoView({behavior:'smooth',block:'nearest'})};dropzone.onclick=e=>{if(e.target!==fileInput)fileInput.click()};fileInput.onchange=e=>{if(e.target.files[0])analyze(e.target.files[0]);fileInput.value=''};dropzone.ondragover=e=>{e.preventDefault();dropzone.classList.add('dragover')};dropzone.ondragleave=()=>dropzone.classList.remove('dragover');dropzone.ondrop=e=>{e.preventDefault();dropzone.classList.remove('dragover');let f=e.dataTransfer.files[0];if(f)analyze(f)};
@@ -117,7 +131,7 @@ document.getElementById('sigSelect').onchange=e=>{rhythmState.sig=e.target.value
 document.getElementById('autoTempoBtn').onclick=()=>{autoRhythm();buildTab()};
 document.getElementById('barPrevBtn').onclick=()=>{rhythmState.shiftBeats-=1;buildTab()};
 document.getElementById('barNextBtn').onclick=()=>{rhythmState.shiftBeats+=1;buildTab()};
-document.getElementById('dismissStatus').onclick=()=>document.getElementById('statusLine').style.display='none';document.getElementById('futureLink').onclick=e=>{e.preventDefault();toast('Automatic bass extraction from full songs is planned for a future version.')};window.addEventListener('resize',()=>{if(notes.length){let peaks=decoded?decoded.getChannelData(0):demoWave();setWave(peaks)}});
+document.getElementById('dismissStatus').onclick=()=>document.getElementById('statusLine').style.display='none';document.getElementById('futureLink').onclick=e=>{e.preventDefault();toast('Full songs are split with Demucs (Meta, personal and research use), right in your browser. The model downloads once (90 MB).')};window.addEventListener('resize',()=>{if(notes.length){let peaks=decoded?decoded.getChannelData(0):demoWave();setWave(peaks)}});
 
 
 
@@ -145,3 +159,30 @@ function playClip(t0,t1,i){
   document.addEventListener('keydown',e=>{if(e.key==='Escape')open(false)});
   document.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>{viewMode=b.dataset.view;document.querySelectorAll('[data-view]').forEach(x=>x.setAttribute('aria-pressed',x===b));buildTab()});
 })();
+
+// ---- full songs: bass separation in a worker, and a Bass only / Full mix playback switch ----
+const MODEL_URL='models/htdemucs_w16.onnx';
+let srcMode='full',bassUrl=null,hearBass=false;
+document.querySelectorAll('[data-src]').forEach(b=>b.onclick=e=>{e.stopPropagation();srcMode=b.dataset.src;document.querySelectorAll('[data-src]').forEach(x=>x.setAttribute('aria-pressed',x===b))});
+function separateBass(left,right,onProgress){
+  return new Promise((resolve,reject)=>{
+    let w;try{w=new Worker('separate-worker.js')}catch(e){return reject(new Error('Bass separation needs the app to be opened from a web address (it does not work from a local file).'))}
+    const t0=performance.now();
+    w.onmessage=e=>{const m=e.data;
+      if(m.type==='progress'){
+        if(m.phase==='model')onProgress(2+18*(m.total?m.done/m.total:0),m.cached?'Separation model ready':`Downloading the separation model (once): ${Math.round(m.done/1048576)} of ${Math.round((m.total||m.done)/1048576)} MB`);
+        else{const f=m.total?m.done/m.total:0,el=(performance.now()-t0)/1000,left=f>0.05?Math.round(el/f-el):null;
+          onProgress(20+50*f,`Separating the bass from the song${m.backend==='webgpu'?' (GPU)':''}…${left!=null?` about ${left>90?Math.round(left/60)+' min':left+' s'} left`:''}`)}
+      }else if(m.type==='done'){w.terminate();resolve({left:m.left,right:m.right,backend:m.backend})}
+      else if(m.type==='error'){w.terminate();reject(new Error(m.message))}};
+    w.onerror=e=>{w.terminate();reject(new Error(e.message||'Bass separation failed in this browser.'))};
+    w.postMessage({cmd:'separate',left:left.slice(),right:right.slice(),modelUrl:new URL(MODEL_URL,location.href).href,cpuOnly:/[?&]cpu=1/.test(location.search)});
+  });
+}
+function wavBlob(ch,rate){const n=ch[0].length,b=new ArrayBuffer(44+n*2),v=new DataView(b),s=(o,t)=>{for(let i=0;i<t.length;i++)v.setUint8(o+i,t.charCodeAt(i))};
+  s(0,'RIFF');v.setUint32(4,36+n*2,true);s(8,'WAVEfmt ');v.setUint32(16,16,true);v.setUint16(20,1,true);v.setUint16(22,1,true);v.setUint32(24,rate,true);v.setUint32(28,rate*2,true);v.setUint16(32,2,true);v.setUint16(34,16,true);s(36,'data');v.setUint32(40,n*2,true);
+  const L=ch[0],R=ch[1]||ch[0];for(let i=0;i<n;i++){const x=Math.max(-1,Math.min(1,(L[i]+R[i])*0.5));v.setInt16(44+i*2,x*32767,true)}return new Blob([b],{type:'audio/wav'})}
+function setSource(){const t=audio.currentTime||0,was=playing;if(was)pause();audio.src=hearBass&&bassUrl?bassUrl:objectUrl;audio.load();audio.preservesPitch=true;
+  const go=()=>{try{audio.currentTime=t}catch(e){}if(was)play()};if(audio.readyState>=1)go();else audio.addEventListener('loadedmetadata',go,{once:true})}
+function setBassSwitch(show){const sw=document.getElementById('mixSwitch');sw.hidden=!show;sw.querySelectorAll('button').forEach(b=>b.setAttribute('aria-pressed',(b.dataset.mix==='bass')===hearBass))}
+document.querySelectorAll('[data-mix]').forEach(b=>b.onclick=()=>{hearBass=b.dataset.mix==='bass';setBassSwitch(true);setSource()});
