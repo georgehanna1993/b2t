@@ -19,6 +19,7 @@ Modules are UMD-style globals (`LowlineAnalysis`, `LowlineFingering`, `LowlineRh
 ## Commands
 - `node test/all.js` - all suites (must stay green)
 - `node test/analyze_file.js samples/song.wav out.json` - analyze a real file (put real WAVs in `samples/`, which is git-ignored)
+- Browsers resample to the device rate: also check real files at 48 kHz (override `AudioContext` with `{sampleRate:48000}` in Playwright).
 - UI checks: Playwright (python) driving `file:///.../index.html` works well; set files with `#fileInput`.
 
 ## How we work (important)
@@ -36,6 +37,8 @@ rhythm engine, full notation renderer, tempo/time-signature controls, playhead l
 Latest fixes: onset loudness gate now looks at the note body (notes that start from digital silence were dropped, which removed
 the D2 pickup from some repeats of Play That Funky Music); dead notes must be within 19 dB of the loudest notes; very short quiet blips
 are dropped; slap brightness skips the start-click of notes that begin from silence (threshold 0.18).
+Onset size test also accepts a rise measured over ~30 ms (`onsetLookMs`), so results no longer flip with the decode rate
+(Chrome decodes at the device rate, often 48 kHz; at 48 kHz the open E before the A1 in PTFM was lost). `test/samplerate_test.js`.
 
 ## Next ideas (in rough priority)
 1. "Hear the tab": play the detected notes over the song to find mistakes by ear.
@@ -47,4 +50,4 @@ are dropped; slap brightness skips the start-click of notes that begin from sile
 
 ## Known limits
 Straight 16th grid at one tempo; steady tonal bleed ~10 dB under the bass can read as a low note; slides slower than ~6 semitones/s are
-not detected; slap vs pop is guessed from the string; fingering is the model's most comfortable choice, not a recording of a player.
+not detected; very soft or very fast re-attacks over a ringing note can still be missed (samplerate_test sweep: 34/42 shapes clean); slap vs pop is guessed from the string; fingering is the model's most comfortable choice, not a recording of a player.

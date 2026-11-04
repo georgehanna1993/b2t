@@ -25,6 +25,7 @@
     maxHz: 460,
     onsetDb: 5,          // minimum energy rise (dB) to call an onset
     onsetGapMs: 55,      // minimum spacing between onsets
+    onsetLookMs: 30,     // energy rise is measured against the quietest point this far back (in ms, so it does not depend on sample rate)
     silenceRelDb: 36,    // anything this far below the loud notes is silence (hum, hiss, tails)
     runTol: 0.55,        // semitones: frame belongs to the current pitch plateau
     stableSpread: 0.35,  // semitones: 3 frames this tight form a new plateau
@@ -347,11 +348,20 @@
 
     // onsets
     const od = new Float32Array(nb);
-    for (let b = 2; b < nb; b++) od[b] = Math.max(0, eb[b] - Math.min(eb[b - 1], eb[b - 2]));
+    // od = rise over the last 2 blocks (sharp, gives the attack time). odL = rise over ~onsetLookMs, used only for the
+    // size test: browsers decode at the device rate (often 48 kHz), which makes blocks shorter and spreads an attack over
+    // more of them, so a real 7 dB pluck could show only 4.9 dB in 2 blocks (a missed open E in Play That Funky Music).
+    const lookB = Math.max(2, Math.round(CFG.onsetLookMs / 1000 * srD / HOP));
+    const odL = new Float32Array(nb);
+    for (let b = 2; b < nb; b++) {
+      od[b] = Math.max(0, eb[b] - Math.min(eb[b - 1], eb[b - 2]));
+      let lo = eb[b - 1]; for (let k = 2; k <= lookB && b - k >= 0; k++) lo = Math.min(lo, eb[b - k]);
+      odL[b] = Math.max(0, eb[b] - lo);
+    }
     const gapB = Math.round(CFG.onsetGapMs / 1000 * srD / HOP);
     let onsets = [];
     for (let b = 2; b < nb; b++) {
-      if (od[b] < CFG.onsetDb) continue;
+      if (od[b] < CFG.onsetDb && !(od[b] >= CFG.onsetDb * 0.6 && Math.max(odL[b], b + 1 < nb ? odL[b + 1] : 0) >= CFG.onsetDb)) continue;
       // Loudness gate on the note BODY, not on the block that holds the energy jump. A note that starts
       // from digital silence (common in separated stems) has its biggest jump while still quiet, so gating
       // on that block threw the note away entirely.
