@@ -3,43 +3,67 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="theme-color" content="#f4f0e6" />
-  <title>Lowline — learn the line</title>
+  <meta name="theme-color" content="#0f3d2e" />
+  <title>Lowline — bass tabs from your audio</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" /><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Archivo:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <header class="masthead"><a href="#" class="wordmark">LOWLINE<span class="wordmark-dot">.</span></a><span class="header-note">A SMALL TOOL FOR THE LOW END</span><a href="#upload" class="header-action">MAKE A TAB <span>↘</span></a></header>
+  <header class="masthead"><a href="#" class="wordmark">LOWLINE</a><nav><a href="#upload">Make a tab</a><a href="#legend" id="legendLink">Legend</a></nav></header>
   <main>
     <section class="hero">
-      <div class="hero-copy"><p class="overline">BASS TAB, FROM YOUR AUDIO</p><h1>Learn the line.<br><em>Feel the pocket.</em></h1><p class="intro">Drop in a bass recording. Get a rough map of the notes, then make the part your own.</p></div>
-      <div class="hero-graphic" aria-hidden="true"><div class="fretboard"><i></i><i></i><i></i><i></i><i></i><b class="fret-note note-one"></b><b class="fret-note note-two"></b><b class="fret-note note-three"></b></div><div class="graphic-caption">FOUR STRINGS.<br>ROOM TO GROOVE.</div></div>
+      <h1>LOW<br>END<br>THEORY</h1>
+      <div class="hero-side" id="upload">
+        <p class="lead">Feed it a bass track. Get back the notes, the fingering and the groove, on one page you can play along to.</p>
+        <button class="drop" id="dropzone"><input id="fileInput" type="file" accept="audio/*,.mp3,.wav,.m4a,.ogg,.flac" hidden /><span class="drop-plus">+</span><span><b>Drop an MP3 or WAV</b><small>isolated bass works best · up to 10 minutes</small></span></button>
+        <button class="demo" id="demoBtn"><span class="demo-play">▶</span> or try the demo groove</button>
+        <p class="status" id="statusLine"><span id="statusText">Your audio never leaves your device.</span><button id="dismissStatus" aria-label="Dismiss">×</button></p>
+        <div class="analysis-progress" id="analysisProgress" hidden><div class="progress-caption"><span id="analysisText">Listening to your track…</span><b id="progressPct">0%</b></div><div class="progress-track"><i id="analysisBar"></i></div></div>
+      </div>
     </section>
-    <section class="start" id="upload"><div class="start-top"><h2>Start with a sound.</h2><span>01 — YOUR AUDIO</span></div>
-      <div class="start-actions"><button class="upload-button" id="dropzone"><input id="fileInput" type="file" accept="audio/*,.mp3,.wav,.m4a,.ogg,.flac" hidden /><span class="upload-plus">＋</span><span><b>Drop an MP3 or WAV here</b><small>or choose a file · isolated bass works best</small></span><span class="upload-arrow">↗</span></button><button class="demo-button" id="demoBtn"><span class="demo-play">▶</span><span><b>Just show me</b><small>Play a little demo groove</small></span><span class="upload-arrow">↗</span></button></div>
-      <p class="status" id="statusLine"><span class="status-dot"></span><span id="statusText">Audio stays on your device. Full-song bass separation is a future feature.</span><button id="dismissStatus" aria-label="Dismiss">×</button></p>
-      <div class="analysis-progress" id="analysisProgress" hidden><div class="progress-caption"><span id="analysisText">Listening to your track…</span><b id="progressPct">0%</b></div><div class="progress-track"><i id="analysisBar"></i></div><p>Checking pitch, note attacks, and possible slides.</p></div>
-    </section>
+
     <section class="practice" id="playerSection" aria-label="Bass tab practice player">
-      <div class="songline"><div><span class="tiny-label">YOUR PRACTICE LOOP <i id="demoPill">· DEMO</i></span><h2 id="trackName">Pocket groove <span>—</span> Lowline session</h2><p id="trackSub">Estimated notes · E standard bass</p></div><button class="play-round" id="playBtn" aria-label="Play"><span>▶</span></button></div>
-      <div class="timeline-wrap"><div class="timeline-meta"><span><i></i> <span id="currentTime">00:00</span></span><span id="durationLabel">00:16</span></div><div class="waveform" id="waveform" role="slider" tabindex="0" aria-label="Audio timeline" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><canvas id="waveCanvas"></canvas><div class="wave-progress" id="waveProgress"></div><div class="wave-cursor" id="waveCursor"></div></div></div>
-      <div class="tab-heading"><h3>THE NOTES <span id="noteCount">· 32 NOTES</span></h3><details class="options"><summary aria-label="Practice options">OPTIONS <span>＋</span></summary><div class="options-pop"><label for="tuningSelect">Tuning</label><select id="tuningSelect" aria-label="Bass tuning"><option value="E">E standard</option><option value="D">D standard</option><option value="dropD">Drop D</option><option value="B5">5-string (B E A D G)</option></select><label for="octaveSelect">Octave</label><select id="octaveSelect" aria-label="Move all notes by octaves"><option value="-1">1 octave down</option><option value="0" selected>As detected</option><option value="1">1 octave up</option></select><button id="noteNamesBtn" aria-pressed="false">Note names</button><button id="barsBtn" aria-pressed="true">Bar numbers</button><button id="rhythmBtn" aria-pressed="true">Rhythm stems</button><button id="fingersBtn" aria-pressed="false">Finger numbers</button><div class="tempo-control"><label for="bpmInput">Tempo</label><input id="bpmInput" type="number" min="30" max="300" step="0.5" /><button id="autoTempoBtn" type="button">Auto</button><small id="tempoHint"></small></div><div class="tempo-control"><label for="sigSelect">Time</label><select id="sigSelect" aria-label="Time signature"><option value="4/4">4/4</option><option value="3/4">3/4</option><option value="2/4">2/4</option><option value="6/8">6/8</option><option value="12/8">12/8</option></select><button id="barPrevBtn" type="button" aria-label="Move bar lines one beat earlier">◀ beat</button><button id="barNextBtn" type="button" aria-label="Move bar lines one beat later">beat ▶</button></div><button id="loopBtn" aria-pressed="false">Loop section</button><div class="speed-control"><label for="speedSelect">Speed</label><select id="speedSelect"><option value="1">100%</option><option value="0.8">80%</option><option value="0.65">65%</option></select></div></div></details></div>
+      <div class="songline">
+        <div><p class="kicker">NOW LEARNING <i id="demoPill">· DEMO</i></p><h2 id="trackName">Pocket groove <span>—</span> Lowline session</h2><p id="trackSub">Estimated notes · E standard bass</p></div>
+        <button class="play-round" id="playBtn" aria-label="Play"><span>▶</span></button>
+      </div>
+      <div class="timeline-wrap"><div class="timeline-meta"><span id="currentTime">00:00</span><span id="durationLabel">00:16</span></div><div class="waveform" id="waveform" role="slider" tabindex="0" aria-label="Audio timeline" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><canvas id="waveCanvas"></canvas><div class="wave-progress" id="waveProgress"></div><div class="wave-cursor" id="waveCursor"></div></div></div>
+      <div class="tab-heading"><h3>THE NOTES <span id="noteCount">· 32 NOTES</span></h3><span class="hint">Click any note or mark to hear it</span></div>
       <div class="tab-scroll" id="tabScroll"><div class="tab-grid" id="tabGrid"></div></div>
-      <div class="tab-bottom"><span id="tabTuning">E A D G</span><span>QUESTION MARK = CHECK THIS NOTE BY EAR</span></div>
-      <details class="legend"><summary>LEGEND <span>what every mark means</span></summary><div class="legend-grid">
-<p><b>H / P</b> curved line between two numbers: hammer-on / pull-off. Pluck once, fret the next note without plucking.</p>
-<p><b>slanted line + curve</b> legato slide: pluck the first number, slide to the second (not plucked again).</p>
-<p><b>slanted tick after a note</b> slide off: down <i>\</i> or up <i>/</i>, no landing note.</p>
-<p><b>slanted tick before a note</b> slide in: from below <i>/</i> or from above <i>\</i>.</p>
-<p><b>S</b> slap, <b>P</b> pop (letters above the staff).</p>
-<p><b>x</b> dead / muted note. <b>(5)</b> tied note, held from the note before (not plucked again).</p>
-<p><b>~~~</b> vibrato above the staff. <b>?</b> uncertain: check this note by ear.</p>
-<p><b>Under the staff</b> rhythm: stem = quarter, one beam = eighths, two beams = sixteenths, dot = 1.5 times longer, with rests. Bar numbers sit above the bar lines.</p>
-<p><b>Finger numbers</b> (Options): 1 index, 2 middle, 3 ring, 4 pinky. One finger per fret, hand moves only when it must.</p></div></details><div class="transport"><button id="restartBtn" aria-label="Restart">↺</button><button id="pauseBtn" aria-label="Pause">PAUSE</button><span class="transport-hint">CLICK THE TAB TO JUMP AROUND</span><span class="playing-bars"><i></i><i></i><i></i></span></div>
+      <div class="transport"><button id="restartBtn" aria-label="Back to start">↺</button><button id="pauseBtn">Pause</button><span id="tabTuning">E A D G</span><span class="playing-bars"><i></i><i></i><i></i></span></div>
+      <details class="legend" id="legend"><summary>LEGEND <span>what every mark means</span></summary><div class="legend-grid">
+<p><b>H / P</b> curve between two numbers: hammer-on / pull-off. Pluck once, fret the next note without plucking.</p>
+<p><b>Slanted line + curve</b> legato slide: pluck the first number, slide to the second.</p>
+<p><b>Slanted tick after a note</b> slide off, down <i>\</i> or up <i>/</i>. <b>Before a note</b>: slide in.</p>
+<p><b>S</b> slap, <b>P</b> pop. <b>x</b> dead note. <b>(5)</b> tied: held, not plucked again.</p>
+<p><b>~~~</b> vibrato. <b>?</b> uncertain: check it by ear. <b>8va</b> below the low string, played an octave up.</p>
+<p><b>Notation</b> (View): bass clef, written an octave above how it sounds, like all bass parts.</p></div></details>
     </section>
-    <div class="phone-note" id="mobileCurrent"><span>NOW PLAYING</span><b>—</b><small>Tap a note to jump</small></div>
-    <aside class="fine-print"><span>✳</span><p><b>Use your ears, too.</b> Audio-to-tab is an estimate. Orange question marks mean a note is less certain.</p><a href="#" id="futureLink">FULL SONGS: LATER</a></aside>
+
+    <button class="view-fab" id="viewFab" aria-controls="viewPanel" aria-expanded="false"><span class="fab-icon">☰</span> View &amp; settings</button>
+    <div class="view-scrim" id="viewScrim"></div>
+    <aside class="view-panel" id="viewPanel" aria-label="View and settings">
+      <div class="panel-head"><h3>View &amp; settings</h3><button id="viewClose" aria-label="Close">×</button></div>
+      <div class="panel-group"><h4>Show</h4>
+        <div class="seg"><button data-view="tab" aria-pressed="true">Tab</button><button data-view="both" aria-pressed="false">Tab + notation</button></div>
+        <div class="toggles"><button id="rhythmBtn" aria-pressed="false">Rhythm stems</button><button id="noteNamesBtn" aria-pressed="false">Note names</button><button id="fingersBtn" aria-pressed="false">Finger numbers</button><button id="barsBtn" aria-pressed="false">Bar numbers</button></div></div>
+      <div class="panel-group"><h4>Bass</h4>
+        <label>Tuning<select id="tuningSelect"><option value="E">E standard</option><option value="D">D standard</option><option value="dropD">Drop D</option><option value="B5">5-string (B E A D G)</option></select></label>
+        <label>Octave<select id="octaveSelect"><option value="-1">1 octave down</option><option value="0" selected>As detected</option><option value="1">1 octave up</option></select></label></div>
+      <div class="panel-group"><h4>Time</h4>
+        <label>Tempo<span class="row"><input id="bpmInput" type="number" min="30" max="300" step="0.5" /><button id="autoTempoBtn" type="button">Auto</button></span></label><small id="tempoHint"></small>
+        <label>Time signature<select id="sigSelect"><option value="4/4">4/4</option><option value="3/4">3/4</option><option value="2/4">2/4</option><option value="6/8">6/8</option><option value="12/8">12/8</option></select></label>
+        <label>Bar lines<span class="row"><button id="barPrevBtn" type="button">◀ 1 beat</button><button id="barNextBtn" type="button">1 beat ▶</button></span></label></div>
+      <div class="panel-group"><h4>Practice</h4>
+        <label>Speed<select id="speedSelect"><option value="1">100%</option><option value="0.8">80%</option><option value="0.65">65%</option><option value="0.5">50%</option></select></label>
+        <div class="toggles"><button id="loopBtn" aria-pressed="false">Loop section</button></div></div>
+    </aside>
+
+    <div class="phone-note" id="mobileCurrent"><span>NOW</span><b>—</b></div>
+    <aside class="fine-print"><p><b>Use your ears, too.</b> Audio-to-tab is an estimate: a question mark means a note is less certain. Click it and listen.</p><a href="#" id="futureLink">Full songs: later</a></aside>
   </main>
-  <footer><span>LOWLINE / MADE FOR THE LOW NOTES</span><span>STAY IN THE POCKET&nbsp; ✳ &nbsp;2026</span></footer>
+  <footer><span>LOWLINE</span><span>MADE FOR THE LOW NOTES · 2026</span></footer>
   <audio id="audioPlayer" preload="auto"></audio><div class="toast" id="toast" role="status"></div><script src="analysis.js"></script><script src="fingering.js"></script><script src="rhythm.js"></script><script src="tabview.js"></script><script src="app.js"></script>
 </body>
 </html>

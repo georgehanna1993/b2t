@@ -57,6 +57,11 @@ moves every pitched note (and slide targets) before fingering; `octaveApplied` i
 Same-note re-plucks while the string rings (legato eighths): a ghost candidate with a >= 3 dB dip just before it, OR a >= 16 dB
 click above 1.5 kHz, AND the level still within 4 dB 150 ms later, splits the note (a ghost instead dies away).
 
+UI (Nov 2026 redesign, "record sleeve": green #0f3d2e / cream #f3ead3 / tomato #e8553b, Archivo + Archivo Black + JetBrains Mono).
+Settings live in a slide-in "View & settings" panel (floating button; bottom sheet on phones). Defaults: tab only, no rhythm
+stems, no bar numbers. "Tab + notation" adds a bass-clef staff (written an octave up, beamed per beat). Clicking a tab number,
+a notation head or any mark (H/P, slide, slap, vibrato; `.mark-hit` boxes) plays just that note (`playClip` in app.js).
+
 ## Scoring against real tabs (`test/score_tab.js`)
 `node test/score_tab.js samples/song.wav samples/song_ref.js [-v]` aligns detected pitches with a tab's pitch sequence (no timing
 needed) and prints per-section correct / wrong(octave) / missed / extra and precision. Reference files are written by hand from the
@@ -73,7 +78,7 @@ note to the Nov stem (14.66 s) - ask the owner.
 Debug helper idea: spectrogram PNG with detected notes overlaid (numpy+matplotlib) is the best way to judge real files.
 
 ## Next ideas (in rough priority)
-1. "Hear the tab": play the detected notes over the song to find mistakes by ear.
+1. "Hear the tab": synth the detected notes over the song (clicking a note already plays its clip of the recording).
 2. Click a note to cycle alternative fingerings and lock the chosen ones (`fingering.assign(notes, open, {locks})` already accepts locks).
 3. Export ASCII tab / PDF; print layout.
 4. (done) MP3 / m4a / ogg / flac input via decodeAudioData; files up to 10 min.

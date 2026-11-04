@@ -1,6 +1,6 @@
 const audio=document.getElementById('audioPlayer'),fileInput=document.getElementById('fileInput'),dropzone=document.getElementById('dropzone'),waveform=document.getElementById('waveform'),canvas=document.getElementById('waveCanvas'),ctx=canvas.getContext('2d');
 const tuningSelect=document.getElementById('tuningSelect');
-let notes=[],notePositions=[],rowLabels=[],duration=8,currentIndex=-1,playing=false,speed=1,raf=0,objectUrl=null,demoUrl=null,decoded=null,customDuration=8,loopOn=false,loopStart=0,loopEnd=0,showNames=false,showBars=true,toastTimer;
+let notes=[],notePositions=[],rowLabels=[],duration=8,currentIndex=-1,playing=false,speed=1,raf=0,objectUrl=null,demoUrl=null,decoded=null,customDuration=8,loopOn=false,loopStart=0,loopEnd=0,showNames=false,showBars=false,toastTimer;
 const noteNames=['C','C♯','D','D♯','E','F','F♯','G','G♯','A','A♯','B'];
 const demoMidi=[40,40,43,45,47,45,43,40,40,40,43,45,47,50,47,45,43,43,45,47,45,43,40,38,40,40,43,45,47,45,43,40];
 const demoTimes=demoMidi.map((m,i)=>({time:i*.5,midi:m,dur:.43,confidence:i%7===5?.66:.91}));
@@ -12,7 +12,7 @@ let octaveApplied=0;                                              // semitones t
 function applyOctave(){const want=12*(+(document.getElementById('octaveSelect')||{value:0}).value||0),d=want-octaveApplied;if(!d)return;
   notes.forEach(n=>{if(n.mute)return;n.midi+=d;if(n.slideTo!=null)n.slideTo+=d;});octaveApplied=want}
 const rhythmState={bpm:100,origin:0,sig:'4/4',shiftBeats:0,conf:0,auto:true};
-let noteEnds=[],tabInfo=null,showRhythm=true,showFingers=false;
+let noteEnds=[],tabInfo=null,showRhythm=false,showFingers=false,viewMode='tab',clipEnd=null,clipTimer=0;
 function stringNames(){return (TUNINGS[tuningSelect.value]||TUNINGS.E).n}
 function autoRhythm(){ // estimate tempo + where bar 1 starts from the notes
   if(!notes.length)return;
@@ -32,7 +32,7 @@ function buildTab(){
   const beatSec=60/rhythmState.bpm;
   const rh=notes.length?LowlineRhythm.build(notes,{bpm:rhythmState.bpm,origin:rhythmState.origin+rhythmState.shiftBeats*beatSec,sig:rhythmState.sig}):null;
   tabInfo=LowlineTabView.render({grid,notes,rhythm:rh,names:stringNames(),openMidis:strings(),
-    opts:{rhythm:showRhythm,bars:showBars,names:showNames,fingers:showFingers},midiName,fmt,onSeek:seek});
+    opts:{rhythm:showRhythm,bars:showBars,names:showNames,fingers:showFingers,notation:viewMode!=='tab'},midiName,fmt,onSeek:seek,onPlay:playClip});
   notePositions=tabInfo.xs;noteEnds=tabInfo.ends;
   document.getElementById('noteCount').textContent=`· ${notes.length} NOTES`;
   document.getElementById('tabTuning').textContent=stringNames().join(' ');
@@ -50,7 +50,7 @@ function playheadX(t){
   const s0=isSlide?n.time+n.dur:n.time,f=Math.max(0,Math.min(1,(t-s0)/Math.max(.001,notes[i+1].time-s0)));
   return endX+(notePositions[i+1]-endX)*f;
 }
-function drawWave(data){let rect=canvas.getBoundingClientRect(),dpr=devicePixelRatio||1;canvas.width=rect.width*dpr;canvas.height=rect.height*dpr;ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,rect.width,rect.height);let count=Math.max(1,Math.floor(rect.width/3)),step=Math.max(1,Math.floor(data.length/count)),mid=rect.height/2;for(let i=0;i<count;i++){let a=0;for(let j=0;j<step;j++)a=Math.max(a,Math.abs(data[i*step+j]||0));let h=Math.max(2,a*rect.height*.92);ctx.fillStyle=i/count<(audio.currentTime/duration)?'#E00000':'#FFA97B';ctx.globalAlpha=i/count<(audio.currentTime/duration)?.95:.8;ctx.fillRect(i*rect.width/count,mid-h/2,Math.max(1,rect.width/count-1),h)}ctx.globalAlpha=1}
+function drawWave(data){let rect=canvas.getBoundingClientRect(),dpr=devicePixelRatio||1;canvas.width=rect.width*dpr;canvas.height=rect.height*dpr;ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,rect.width,rect.height);let count=Math.max(1,Math.floor(rect.width/3)),step=Math.max(1,Math.floor(data.length/count)),mid=rect.height/2;for(let i=0;i<count;i++){let a=0;for(let j=0;j<step;j++)a=Math.max(a,Math.abs(data[i*step+j]||0));let h=Math.max(2,a*rect.height*.92);ctx.fillStyle=i/count<(audio.currentTime/duration)?'#0f3d2e':'#c7bb98';ctx.globalAlpha=i/count<(audio.currentTime/duration)?.95:.8;ctx.fillRect(i*rect.width/count,mid-h/2,Math.max(1,rect.width/count-1),h)}ctx.globalAlpha=1}
 function demoWave(){let n=2200;let a=new Float32Array(n);for(let i=0;i<n;i++)a[i]=Math.abs(Math.sin(i*.078)*Math.sin(i*.021)*.82+Math.sin(i*.018)*.16);return a}
 function setWave(data){if(canvas.getBoundingClientRect().width)drawWave(data);else requestAnimationFrame(()=>drawWave(data));document.getElementById('durationLabel').textContent=fmt(duration);}
 function highlight(i){currentIndex=i;document.querySelectorAll('.tab-note').forEach(el=>el.classList.toggle('current',+el.dataset.index===i));let n=notes[i];document.querySelector('#mobileCurrent b').textContent=n?`${midiName(n.midi)} · ${n.fret}`:'—';if(n){let el=document.querySelector(`.tab-note[data-index="${i}"]`);}}
@@ -58,7 +58,7 @@ function nowTime(){return audio.currentTime}
 function syncTab(t){const view=document.getElementById('tabScroll'),maxScroll=Math.max(0,view.scrollWidth-view.clientWidth),x=playheadX(t);if(tabInfo&&tabInfo.cursor)tabInfo.cursor.style.left=x+'px';view.scrollLeft=Math.max(0,Math.min(maxScroll,x-view.clientWidth*.45))}
 function updateTime(){if(!playing)return;let t=nowTime();if(loopOn&&t>=loopEnd&&loopEnd>loopStart){audio.currentTime=loopStart;t=loopStart}if(t>=duration){pause();audio.currentTime=0;return}let pct=Math.min(1,t/duration)*100;document.getElementById('waveCursor').style.left=pct+'%';document.getElementById('waveProgress').style.width=pct+'%';document.getElementById('currentTime').textContent=fmt(t);syncTab(t);let idx=-1;for(let i=0;i<notes.length;i++){if(notes[i].time<=t)idx=i;else break}if(idx!==currentIndex)highlight(idx);raf=requestAnimationFrame(updateTime)}
 function pause(){playing=false;cancelAnimationFrame(raf);audio.pause();document.body.classList.remove('playing');document.getElementById('playBtn').innerHTML='<span>▶</span>'}
-async function play(){if(playing)return;if(!audio.src)return toast('Choose the demo or upload a bass track first.');audio.playbackRate=speed;audio.preservesPitch=true;try{await audio.play()}catch{toast('Could not start audio. Try pressing play again.');return}playing=true;document.body.classList.add('playing');document.getElementById('playBtn').innerHTML='<span>Ⅱ</span>';raf=requestAnimationFrame(updateTime)}
+async function play(){clipEnd=null;if(playing)return;if(!audio.src)return toast('Choose the demo or upload a bass track first.');audio.playbackRate=speed;audio.preservesPitch=true;try{await audio.play()}catch{toast('Could not start audio. Try pressing play again.');return}playing=true;document.body.classList.add('playing');document.getElementById('playBtn').innerHTML='<span>Ⅱ</span>';raf=requestAnimationFrame(updateTime)}
 function setPosition(t){t=Math.max(0,Math.min(duration,t));audio.currentTime=t;if(!audio.src)window.lastDemoNote=-1;const pct=duration?t/duration*100:0;document.getElementById('waveCursor').style.left=pct+'%';document.getElementById('waveProgress').style.width=pct+'%';document.getElementById('currentTime').textContent=fmt(t);let i=-1;for(let j=0;j<notes.length;j++)if(notes[j].time<=t)i=j;if(i!==currentIndex)highlight(i);syncTab(t)}
 function seek(t){setPosition(t);if(playing){pause();play()}}
 function buildDemoWav(){const sr=44100,count=Math.ceil(duration*sr),samples=new Float32Array(count);demoTimes.forEach((n,k)=>{const from=Math.floor(n.time*sr),next=demoTimes[k+1]?.time??duration,to=Math.min(count,Math.floor(next*sr)),f=440*Math.pow(2,(n.midi-69)/12);for(let i=from;i<to;i++){const t=(i-from)/sr,attack=Math.min(1,t/.004),env=attack*Math.exp(-t*4.1),tone=Math.sin(2*Math.PI*f*t)*.58+Math.sin(4*Math.PI*f*t)*.25+Math.sin(6*Math.PI*f*t)*.11+Math.sin(8*Math.PI*f*t)*.045;samples[i]+=tone*env*.72}});const ab=new ArrayBuffer(44+count*2),v=new DataView(ab),write=(o,s)=>{for(let i=0;i<s.length;i++)v.setUint8(o+i,s.charCodeAt(i))};write(0,'RIFF');v.setUint32(4,36+count*2,true);write(8,'WAVE');write(12,'fmt ');v.setUint32(16,16,true);v.setUint16(20,1,true);v.setUint16(22,1,true);v.setUint32(24,sr,true);v.setUint32(28,sr*2,true);v.setUint16(32,2,true);v.setUint16(34,16,true);write(36,'data');v.setUint32(40,count*2,true);for(let i=0;i<count;i++)v.setInt16(44+i*2,Math.round(Math.max(-1,Math.min(1,samples[i]))*32767),true);return new Blob([ab],{type:'audio/wav'})}
@@ -66,7 +66,7 @@ function makeDemo(){pause();decoded=null;duration=16;notes=demoTimes.map(x=>({..
 function toast(s){let t=document.getElementById('toast');t.textContent=s;t.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.classList.remove('show'),2600)}
 function updateAnalysis(pct,label){document.getElementById('analysisBar').style.width=`${pct}%`;document.getElementById('progressPct').textContent=`${Math.round(pct)}%`;document.getElementById('analysisText').textContent=label}
 async function analyze(file){
-  if(file.size>25*1024*1024)return toast('That file exceeds the 25 MB limit.');
+  if(file.size>80*1024*1024)return toast('That file exceeds the 80 MB limit.');
   if(!/\.(wav|wave|mp3|m4a|aac|ogg|oga|flac)$/i.test(file.name)&&!/^audio\//.test(file.type))return toast('Please choose an audio file (MP3 or WAV).');
   pause();
   const sl=document.getElementById('statusText'),progress=document.getElementById('analysisProgress');
@@ -92,10 +92,10 @@ async function analyze(file){
     for(let i=0;i<peaks.length;i++){let p=0,sum=0,n=0;const start=i*bucket,end=Math.min(src.length,start+bucket);for(let j=start;j<end;j++){const v=Math.abs(src[j]);if(v>p)p=v;sum+=v*v;n++}peaks[i]=n?Math.max(p*.82,Math.sqrt(sum/n)*1.4):0;if(peaks[i]>max)max=peaks[i]}
     if(max>0)for(let i=0;i<peaks.length;i++)peaks[i]=Math.pow(peaks[i]/max,.72);
     document.getElementById('trackName').innerHTML=`${file.name.replace(/</g,'&lt;')} <span>—</span> your bassline`;
-    document.getElementById('trackSub').textContent='Estimated tab · original audio playback · see LEGEND below the tab for every mark';
+    document.getElementById('trackSub').textContent='Estimated tab · original audio playback · click a note to hear it';
     document.getElementById('demoPill').style.display='none';
     setWave(peaks);autoRhythm();buildTab();seek(0);updateAnalysis(100,'Analysis complete');
-    sl.textContent=`Found ${notes.length} notes. Technique marks are best guesses; review them by ear.`;
+    sl.textContent=`Found ${notes.length} notes. Click any number or mark to hear just that note.`;
     document.getElementById('playerSection').classList.add('visible');progress.hidden=true;
     document.getElementById('playerSection').scrollIntoView({behavior:'smooth',block:'nearest'});
   }catch(e){sl.textContent=e.message||'This file could not be analyzed. Try an MP3 or WAV of the isolated bass.';progress.hidden=true;toast(e.message||'Could not analyze this file.')}
@@ -128,3 +128,20 @@ document.getElementById('dismissStatus').onclick=()=>document.getElementById('st
 
 
 
+
+// ---- hear one note: play only [t0, t1] of the recording, then stop there ----
+function playClip(t0,t1,i){
+  if(!audio.src)return;
+  clearTimeout(clipTimer);if(playing)pause();
+  const start=Math.max(0,t0-0.02),stop=Math.max(t1+0.06,t0+0.25);
+  setPosition(start);if(i!=null)highlight(i);
+  audio.playbackRate=speed;audio.preservesPitch=true;
+  audio.play().then(()=>{clipEnd=stop;const tick=()=>{if(clipEnd==null)return;syncTab(audio.currentTime);if(audio.currentTime>=clipEnd||audio.paused){audio.pause();clipEnd=null;return}clipTimer=setTimeout(tick,15)};tick()}).catch(()=>toast('Press play once so the browser allows sound.'));
+}
+// ---- view & settings panel ----
+(()=>{const panel=document.getElementById('viewPanel'),fab=document.getElementById('viewFab'),close=document.getElementById('viewClose'),scrim=document.getElementById('viewScrim');
+  const open=v=>{panel.classList.toggle('open',v);scrim.classList.toggle('open',v);fab.setAttribute('aria-expanded',v);if(v)close.focus()};
+  fab.onclick=()=>open(!panel.classList.contains('open'));close.onclick=()=>open(false);scrim.onclick=()=>open(false);
+  document.addEventListener('keydown',e=>{if(e.key==='Escape')open(false)});
+  document.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>{viewMode=b.dataset.view;document.querySelectorAll('[data-view]').forEach(x=>x.setAttribute('aria-pressed',x===b));buildTab()});
+})();
