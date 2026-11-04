@@ -94,7 +94,7 @@ async function analyze(file){
       const off=new OfflineAudioContext(2,1,44100);buf=await off.decodeAudioData(arr.slice(0));
       if(buf.duration>600)throw new Error('Please use a file shorter than ten minutes.');
       const L=buf.getChannelData(0),R=buf.numberOfChannels>1?buf.getChannelData(1):L;
-      const bass=await separateBass(L,R,(pct,label)=>updateAnalysis(pct,label));
+      const bass=await separateBass(L,R,(pct,label)=>updateAnalysis(pct,label),[file.name,file.size,file.lastModified].join('|'));
       channels=[bass.left,bass.right];rate=44100;
       bassUrl=URL.createObjectURL(wavBlob(channels,rate));
     }else{
@@ -175,21 +175,45 @@ function playClip(t0,t1,i){
 const MODEL_URL='models/htdemucs_w16.onnx';
 let lastPeaks=null,srcMode='full',bassUrl=null,hearBass=false;
 document.querySelectorAll('[data-src]').forEach(b=>b.onclick=e=>{e.stopPropagation();srcMode=b.dataset.src;document.querySelectorAll('[data-src]').forEach(x=>x.setAttribute('aria-pressed',x===b))});
-function separateBass(left,right,onProgress){
-  return new Promise((resolve,reject)=>{
-    let w;try{w=new Worker('separate-worker.js')}catch(e){return reject(new Error('Bass separation needs the app to be opened from a web address (it does not work from a local file).'))}
-    const t0=performance.now();
-    w.onmessage=e=>{const m=e.data;
-      if(m.type==='progress'){
-        if(m.phase==='model')onProgress(2+18*(m.total?m.done/m.total:0),m.cached?'Separation model ready':`Downloading the separation model (once): ${Math.round(m.done/1048576)} of ${Math.round((m.total||m.done)/1048576)} MB`);
-        else{const f=m.total?m.done/m.total:0,el=(performance.now()-t0)/1000,left=f>0.05?Math.round(el/f-el):null;
-          onProgress(20+50*f,`Separating the bass from the song${m.backend==='webgpu'?' (GPU)':''}…${left!=null?` about ${left>90?Math.round(left/60)+' min':left+' s'} left`:''}`)}
-      }else if(m.type==='done'){w.terminate();resolve({left:m.left,right:m.right,backend:m.backend})}
-      else if(m.type==='error'){w.terminate();reject(new Error(m.message))}};
-    w.onerror=e=>{w.terminate();reject(new Error(e.message||'Bass separation failed in this browser.'))};
-    const l=left.slice(),r=right===left?l.slice():right.slice();
-    w.postMessage({cmd:'separate',left:l,right:r,modelUrl:new URL(MODEL_URL,location.href).href,cpuOnly:/[?&]cpu=1/.test(location.search)},[l.buffer,r.buffer]);
-  });
+// The song is separated in 45 s pieces (+4 s of context on each side, so the cuts are seamless). Every finished piece is
+// saved in IndexedDB under a key for this file: if the page reloads (e.g. the browser ran out of memory) dropping the same
+// song again resumes, and a song separated before loads instantly.
+const SEC=45,CTX=4,SR=44100;
+function idb(){return new Promise((res,rej)=>{const q=indexedDB.open('lowline',1);q.onupgradeneeded=()=>q.result.createObjectStore('bass');q.onsuccess=()=>res(q.result);q.onerror=()=>rej(q.error)})}
+async function idbGet(k){try{const d=await idb();return await new Promise(r=>{const q=d.transaction('bass').objectStore('bass').get(k);q.onsuccess=()=>r(q.result);q.onerror=()=>r(null)})}catch(e){return null}}
+async function idbPut(k,v){try{const d=await idb();await new Promise(r=>{const t=d.transaction('bass','readwrite');t.objectStore('bass').put(v,k);t.oncomplete=r;t.onerror=r;t.onabort=r})}catch(e){}}
+const toI16=a=>{const o=new Int16Array(a.length);for(let i=0;i<a.length;i++)o[i]=Math.max(-1,Math.min(1,a[i]))*32767;return o};
+const XF=2;                                         // seconds of cross-fade between pieces (each piece keeps a 2 s tail)
+function assemble(parts,n){const L=new Float32Array(n),R=new Float32Array(n),X=XF*SR;
+  parts.forEach((p,k)=>{const s0=k*SEC*SR;for(let i=0;i<p.l.length&&s0+i<n;i++){const t=s0+i,a=p.l[i]/32767,b=p.r[i]/32767;
+    if(k>0&&i<X){const w=i/X;L[t]=L[t]*(1-w)+a*w;R[t]=R[t]*(1-w)+b*w}else{L[t]=a;R[t]=b}}});return {L,R}}
+async function separateBass(left,right,onProgress,fileKey){
+  const n=left.length,nSec=Math.ceil(n/(SEC*SR)),parts=new Array(nSec),todo=[];
+  for(let k=0;k<nSec;k++){const v=await idbGet(fileKey+'#'+k);if(v&&v.n===n&&v.v===2)parts[k]=v;else todo.push(k)}
+  const finish=b=>{const o=assemble(parts,n);return {left:o.L,right:o.R,backend:b}};
+  if(!todo.length){onProgress(70,'Bass already separated on this device');return finish('saved')}
+  let w;try{w=new Worker('separate-worker.js')}catch(e){throw new Error('Bass separation needs the app to be opened from a web address (it does not work from a local file).')}
+  const t0=performance.now(),doneBefore=nSec-todo.length;let backend='wasm',doneNow=0,waiter=null;
+  w.onmessage=e=>{const m=e.data;
+    if(m.type==='progress'&&m.phase==='model')onProgress(2+18*(m.total?m.done/m.total:0),m.cached?'Separation model ready':`Downloading the separation model (once): ${Math.round(m.done/1048576)} of ${Math.round((m.total||m.done)/1048576)} MB`);
+    else if(m.type==='progress'){const f=(doneBefore+doneNow+(m.total?m.done/m.total:0))/nSec,fNew=(doneNow+(m.total?m.done/m.total:0))/todo.length,el=(performance.now()-t0)/1000,rest=fNew>0.03?Math.round(el/fNew-el):null;
+      onProgress(20+50*f,`Separating the bass from the song${m.backend==='webgpu'?' (GPU)':''}: ${Math.round(f*100)}%${rest!=null?` · about ${rest>90?Math.round(rest/60)+' min':rest+' s'} left`:''}`)}
+    else if(waiter)waiter(m)};
+  w.onerror=e=>waiter&&waiter({type:'error',message:e.message||'Bass separation failed in this browser.'});
+  const ask=(msg,tr)=>new Promise(r=>{waiter=m=>{if(m.type!=='progress'){waiter=null;r(m)}};w.postMessage(msg,tr||[])});
+  try{
+    let r=await ask({cmd:'init',modelUrl:new URL(MODEL_URL,location.href).href,cpuOnly:/[?&]cpu=1/.test(location.search)});
+    if(r.type==='error')throw new Error(r.message);backend=r.backend;
+    for(const k of todo){
+      const s0=k*SEC*SR,e=Math.min(n,s0+SEC*SR+XF*SR),a=Math.max(0,s0-CTX*SR),b=Math.min(n,e+CTX*SR);
+      const l=left.slice(a,b),rr=right===left?l.slice():right.slice(a,b);
+      r=await ask({cmd:'section',id:k,left:l,right:rr},[l.buffer,rr.buffer]);
+      if(r.type==='error')throw new Error(r.message);
+      parts[k]={v:2,n,l:toI16(r.left.subarray(s0-a,e-a)),r:toI16(r.right.subarray(s0-a,e-a))};
+      await idbPut(fileKey+'#'+k,parts[k]);doneNow++;
+    }
+  }finally{w.terminate()}
+  return finish(backend);
 }
 function wavBlob(ch,rate){const n=ch[0].length,b=new ArrayBuffer(44+n*2),v=new DataView(b),s=(o,t)=>{for(let i=0;i<t.length;i++)v.setUint8(o+i,t.charCodeAt(i))};
   s(0,'RIFF');v.setUint32(4,36+n*2,true);s(8,'WAVEfmt ');v.setUint32(16,16,true);v.setUint16(20,1,true);v.setUint16(22,1,true);v.setUint32(24,rate,true);v.setUint32(28,rate*2,true);v.setUint16(32,2,true);v.setUint16(34,16,true);s(36,'data');v.setUint32(40,n*2,true);
