@@ -50,6 +50,8 @@ Fret-touch blip: a +-1 semitone pitch change with no pluck (<= 110 ms) between t
 finger landing on a ringing open E sounds F for a moment (AOBTD: 17 false F1s).
 Notes below the lowest open string (5-string / drop-tuned parts on a 4-string) are fingered an octave up (`n.octaveUp`, '8va' mark
 over the fret) instead of being drawn as an open string; tested in fingering_test.js #9.
+A slide too long for any one string (e.g. E3 gliding 2 octaves to E1) is drawn as a slide-out from the start note (`n.slideCut`)
+instead of a negative end fret; fingering_test.js #11.
 Options: 5-string tuning (B E A D G; tabview draws `openMidis.length` strings) and an Octave select (-1/0/+1) that
 moves every pitched note (and slide targets) before fingering; `octaveApplied` in app.js tracks it, reset on each new file.
 Same-note re-plucks while the string rings (legato eighths): a ghost candidate with a >= 3 dB dip just before it, OR a >= 16 dB

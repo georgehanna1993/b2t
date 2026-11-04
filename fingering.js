@@ -52,13 +52,13 @@
     let prevPitched = -1;
     notes.forEach((n, i) => {
       if (n.mute || n.midi == null) return;
-      const candsAt = shift => {
+      const candsAt = (shift, noSlide) => {
         const out = [];
         openMidis.forEach((open, s) => {
           const f = n.midi + shift - open;
           if (f < 0 || f > CFG.maxFret) return;
           let endF = f;
-          if (n.slideTo != null) { endF = n.slideTo + shift - open; if (endF < 0 || endF > CFG.maxFret) return; }
+          if (n.slideTo != null && !noSlide) { endF = n.slideTo + shift - open; if (endF < 0 || endF > CFG.maxFret) return; }
           out.push({ s, f, endF });
         });
         return out;
@@ -66,10 +66,13 @@
       // below the lowest string (e.g. a 5-string's low D on a 4-string): play it an octave up, as a bassist would
       let octUp = 0, cands = candsAt(0);
       while (!cands.length && n.midi + octUp < Math.min(...openMidis) && octUp < 24) { octUp += 12; cands = candsAt(octUp); }
+      // a slide longer than any string (e.g. 2 octaves down): play the start note and slide off it (slide-out), not a negative fret
+      let slideCut = false;
+      if (!cands.length && n.slideTo != null) { cands = candsAt(octUp, true); slideCut = cands.length > 0; }
       const prev = prevPitched >= 0 ? items[prevPitched] : null;
       const ioi = prev ? Math.max(0.03, n.time - prev.n.time) : 1;
       items.push({
-        i, n, cands, ioi, octUp,
+        i, n, cands, ioi, octUp, slideCut,
         prevMidi: prev ? prev.n.midi : null,
         legato: n.technique === 'legato' && !!prev,
         slideIn: n.slideIn || null, slideOut: n.slideOut || null
@@ -194,7 +197,7 @@
 
   function assign(notes, openMidis, opts) {
     opts = opts || {};
-    notes.forEach(n => { n.string = null; n.fret = null; n.finger = null; n.pos = null; n.unplayable = false; n.octaveUp = 0; });
+    notes.forEach(n => { n.string = null; n.fret = null; n.finger = null; n.pos = null; n.unplayable = false; n.octaveUp = 0; n.slideCut = false; });
     const items = buildItems(notes, openMidis);
     const itemOfNote = new Map(); items.forEach((it, k) => itemOfNote.set(it.i, k));
     const locks = new Map();
@@ -252,6 +255,7 @@
       n.string = st.c.s; n.fret = st.c.f; n.pos = st.pos;
       n.finger = st.c.f === 0 ? 0 : clamp(st.c.f - st.pos + 1, 1, 4);
       n.octaveUp = it.octUp && it.cands.length ? it.octUp : 0;
+      n.slideCut = !!it.slideCut;
       if (st.c.bad || !it.cands.length) {
         n.unplayable = true;
         const alt = openMidis.map((o, s) => ({ s, f: n.midi - o })).filter(c => c.f >= 0 && c.f <= 24).sort((a, b) => a.f - b.f)[0];

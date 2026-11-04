@@ -63,5 +63,10 @@ const span = ns => { const f = ns.filter(n => n.fret > 0).map(n => n.fret); retu
   ok(n.every(x => !x.octaveUp && !x.unplayable && B5[x.string] + x.fret === x.midi) && n[0].string === 0 && n[0].fret === 0,
     '5-string fingering: ' + n.map(x => `${x.midi}->s${x.string}f${x.fret}`).join(' ')); }
 
+// 11. a slide longer than any string (E3 gliding 2 octaves down to E1) must not give a negative end fret: play E3, slide off
+{ const n = mk([45, 52, 47]); n[1].slideTo = 28; F.assign(n, E);
+  const x = n[1], endF = x.slideTo - E[x.string];
+  ok(!x.unplayable && x.slideCut === true && E[x.string] + x.fret === 52, `over-long slide: s${x.string}f${x.fret} end ${endF} cut=${x.slideCut} unplayable=${x.unplayable}`); }
+
 console.log(`${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

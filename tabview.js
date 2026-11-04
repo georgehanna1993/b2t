@@ -125,7 +125,7 @@
       b.dataset.index = i;
       const tech = [];
       if (n.technique === 'legato') tech.push('hammer-on/pull-off');
-      if (n.slideTo != null) tech.push('legato slide to ' + midiName(n.slideTo));
+      if (n.slideTo != null) tech.push((n.slideCut ? 'slides off toward ' : 'legato slide to ') + midiName(n.slideTo) + (n.slideCut ? ' (too far for one string)' : ''));
       if (n.slideOut) tech.push('slide out ' + n.slideOut);
       if (n.slideIn) tech.push('slide in from ' + (n.slideIn === 'up' ? 'below' : 'above'));
       if (n.vibrato) tech.push('vibrato');
@@ -148,7 +148,7 @@
         text(gMarks, (px + x) / 2, top - 9, up ? 'H' : 'P', { size: 8, weight: 700 });
       }
       // legato slide: slanted line + slur to the second number (which is not plucked again)
-      if (n.slideTo != null) {
+      if (n.slideTo != null && !n.slideCut) {
         const endX = x + L.SLIDE_SPAN, up = n.slideTo > n.midi, endFret = n.slideTo - openMidis[n.string];
         el('line', { x1: x + hw + 2, y1: y + (up ? 6 : -6), x2: endX - hw - 2, y2: y + (up ? -6 : 6), stroke: INK, 'stroke-width': 1.5, 'stroke-linecap': 'round' }, gMarks);
         el('path', { d: arc(x + 6, endX - 6, top, 8), fill: 'none', stroke: INK, 'stroke-width': 1.3 }, gMarks);
@@ -159,8 +159,8 @@
         grid.appendChild(eb);
       }
       // slide out: lone slanted line after the note
-      if (n.slideOut) {
-        const up = n.slideOut === 'up';
+      if (n.slideOut || n.slideCut) {
+        const up = n.slideCut ? n.slideTo > n.midi : n.slideOut === 'up';
         el('line', { x1: x + hw + 2, y1: y + (up ? 5 : -5), x2: x + hw + 2 + 17, y2: y + (up ? -7 : 7), stroke: INK, 'stroke-width': 1.5, 'stroke-linecap': 'round' }, gMarks);
       }
       // slide in: lone slanted line before the note
