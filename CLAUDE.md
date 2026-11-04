@@ -76,7 +76,7 @@ Debug helper idea: spectrogram PNG with detected notes overlaid (numpy+matplotli
 1. "Hear the tab": play the detected notes over the song to find mistakes by ear.
 2. Click a note to cycle alternative fingerings and lock the chosen ones (`fingering.assign(notes, open, {locks})` already accepts locks).
 3. Export ASCII tab / PDF; print layout.
-4. MP3 input (browser can decode it; allow the type in `app.js`/`index.html`, then test on real mp3s).
+4. (done) MP3 / m4a / ogg / flac input via decodeAudioData; files up to 10 min.
 5. Other tunings (6-string, custom); triplet and swing grids; tempo changes.
 6. Higher accuracy: trained model (e.g. Basic Pitch) offline in Python, with the web UI only displaying results.
 

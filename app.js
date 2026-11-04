@@ -58,7 +58,7 @@ function nowTime(){return audio.currentTime}
 function syncTab(t){const view=document.getElementById('tabScroll'),maxScroll=Math.max(0,view.scrollWidth-view.clientWidth),x=playheadX(t);if(tabInfo&&tabInfo.cursor)tabInfo.cursor.style.left=x+'px';view.scrollLeft=Math.max(0,Math.min(maxScroll,x-view.clientWidth*.45))}
 function updateTime(){if(!playing)return;let t=nowTime();if(loopOn&&t>=loopEnd&&loopEnd>loopStart){audio.currentTime=loopStart;t=loopStart}if(t>=duration){pause();audio.currentTime=0;return}let pct=Math.min(1,t/duration)*100;document.getElementById('waveCursor').style.left=pct+'%';document.getElementById('waveProgress').style.width=pct+'%';document.getElementById('currentTime').textContent=fmt(t);syncTab(t);let idx=-1;for(let i=0;i<notes.length;i++){if(notes[i].time<=t)idx=i;else break}if(idx!==currentIndex)highlight(idx);raf=requestAnimationFrame(updateTime)}
 function pause(){playing=false;cancelAnimationFrame(raf);audio.pause();document.body.classList.remove('playing');document.getElementById('playBtn').innerHTML='<span>▶</span>'}
-async function play(){if(playing)return;if(!audio.src)return toast('Choose the demo or upload a WAV first.');audio.playbackRate=speed;audio.preservesPitch=true;try{await audio.play()}catch{toast('Could not start audio. Try pressing play again.');return}playing=true;document.body.classList.add('playing');document.getElementById('playBtn').innerHTML='<span>Ⅱ</span>';raf=requestAnimationFrame(updateTime)}
+async function play(){if(playing)return;if(!audio.src)return toast('Choose the demo or upload a bass track first.');audio.playbackRate=speed;audio.preservesPitch=true;try{await audio.play()}catch{toast('Could not start audio. Try pressing play again.');return}playing=true;document.body.classList.add('playing');document.getElementById('playBtn').innerHTML='<span>Ⅱ</span>';raf=requestAnimationFrame(updateTime)}
 function setPosition(t){t=Math.max(0,Math.min(duration,t));audio.currentTime=t;if(!audio.src)window.lastDemoNote=-1;const pct=duration?t/duration*100:0;document.getElementById('waveCursor').style.left=pct+'%';document.getElementById('waveProgress').style.width=pct+'%';document.getElementById('currentTime').textContent=fmt(t);let i=-1;for(let j=0;j<notes.length;j++)if(notes[j].time<=t)i=j;if(i!==currentIndex)highlight(i);syncTab(t)}
 function seek(t){setPosition(t);if(playing){pause();play()}}
 function buildDemoWav(){const sr=44100,count=Math.ceil(duration*sr),samples=new Float32Array(count);demoTimes.forEach((n,k)=>{const from=Math.floor(n.time*sr),next=demoTimes[k+1]?.time??duration,to=Math.min(count,Math.floor(next*sr)),f=440*Math.pow(2,(n.midi-69)/12);for(let i=from;i<to;i++){const t=(i-from)/sr,attack=Math.min(1,t/.004),env=attack*Math.exp(-t*4.1),tone=Math.sin(2*Math.PI*f*t)*.58+Math.sin(4*Math.PI*f*t)*.25+Math.sin(6*Math.PI*f*t)*.11+Math.sin(8*Math.PI*f*t)*.045;samples[i]+=tone*env*.72}});const ab=new ArrayBuffer(44+count*2),v=new DataView(ab),write=(o,s)=>{for(let i=0;i<s.length;i++)v.setUint8(o+i,s.charCodeAt(i))};write(0,'RIFF');v.setUint32(4,36+count*2,true);write(8,'WAVE');write(12,'fmt ');v.setUint32(16,16,true);v.setUint16(20,1,true);v.setUint16(22,1,true);v.setUint32(24,sr,true);v.setUint32(28,sr*2,true);v.setUint16(32,2,true);v.setUint16(34,16,true);write(36,'data');v.setUint32(40,count*2,true);for(let i=0;i<count;i++)v.setInt16(44+i*2,Math.round(Math.max(-1,Math.min(1,samples[i]))*32767),true);return new Blob([ab],{type:'audio/wav'})}
@@ -67,17 +67,17 @@ function toast(s){let t=document.getElementById('toast');t.textContent=s;t.class
 function updateAnalysis(pct,label){document.getElementById('analysisBar').style.width=`${pct}%`;document.getElementById('progressPct').textContent=`${Math.round(pct)}%`;document.getElementById('analysisText').textContent=label}
 async function analyze(file){
   if(file.size>25*1024*1024)return toast('That file exceeds the 25 MB limit.');
-  if(!/\.wav$/i.test(file.name)&&file.type!=='audio/wav')return toast('Please choose a WAV audio file.');
+  if(!/\.(wav|wave|mp3|m4a|aac|ogg|oga|flac)$/i.test(file.name)&&!/^audio\//.test(file.type))return toast('Please choose an audio file (MP3 or WAV).');
   pause();
   const sl=document.getElementById('statusText'),progress=document.getElementById('analysisProgress');
-  progress.hidden=false;updateAnalysis(2,'Opening WAV…');sl.textContent='Analysis runs locally on your device.';
+  progress.hidden=false;updateAnalysis(2,'Opening audio…');sl.textContent='Analysis runs locally on your device.';
   document.getElementById('dropzone').disabled=true;document.getElementById('demoBtn').disabled=true;
   await new Promise(r=>setTimeout(r,0));
   try{
     const AC=window.AudioContext||window.webkitAudioContext;
     if(!AC)throw new Error('Audio decoding is not supported in this browser.');
     const arr=await file.arrayBuffer(),ac=window.audioContext||(window.audioContext=new AC()),buf=await ac.decodeAudioData(arr.slice(0));
-    if(buf.duration>300)throw new Error('Please use a WAV shorter than five minutes.');
+    if(buf.duration>600)throw new Error('Please use a file shorter than ten minutes.');
     decoded=buf;duration=buf.duration;customDuration=duration;loopStart=duration*.2;loopEnd=Math.min(duration,loopStart+4);
     if(objectUrl)URL.revokeObjectURL(objectUrl);
     objectUrl=URL.createObjectURL(file);audio.src=objectUrl;audio.load();audio.preservesPitch=true;
@@ -85,7 +85,7 @@ async function analyze(file){
     const channels=[];for(let c=0;c<buf.numberOfChannels;c++)channels.push(buf.getChannelData(c));
     const result=await LowlineAnalysis.analyze(channels,buf.sampleRate,{onProgress:p=>updateAnalysis(Math.min(92,p),'Listening for note attacks and pitch…')});
     notes=result.notes;octaveApplied=0;window.lowlineDebug=result; // inspect in the console: lowlineDebug.notes
-    if(!notes.length)throw new Error('No stable bass pitch found. Try a cleaner isolated bass WAV.');
+    if(!notes.length)throw new Error('No stable bass pitch found. Try a cleaner isolated bass track.');
     updateAnalysis(94,'Drawing the waveform and laying out the tab…');
     await new Promise(r=>setTimeout(r,0));
     const src=buf.getChannelData(0),peaks=new Float32Array(1800),bucket=Math.ceil(src.length/peaks.length);let max=0;
@@ -98,7 +98,7 @@ async function analyze(file){
     sl.textContent=`Found ${notes.length} notes. Technique marks are best guesses; review them by ear.`;
     document.getElementById('playerSection').classList.add('visible');progress.hidden=true;
     document.getElementById('playerSection').scrollIntoView({behavior:'smooth',block:'nearest'});
-  }catch(e){sl.textContent=e.message||'This file could not be analyzed. Try an uncompressed PCM WAV.';progress.hidden=true;toast(e.message||'Could not analyze this WAV.')}
+  }catch(e){sl.textContent=e.message||'This file could not be analyzed. Try an MP3 or WAV of the isolated bass.';progress.hidden=true;toast(e.message||'Could not analyze this file.')}
   finally{document.getElementById('dropzone').disabled=false;document.getElementById('demoBtn').disabled=false}
 }
 document.getElementById('demoBtn').onclick=()=>{makeDemo();document.getElementById('statusText').textContent='Demo groove ready. Press play to hear the bass and follow along.';document.getElementById('playerSection').scrollIntoView({behavior:'smooth',block:'nearest'})};dropzone.onclick=e=>{if(e.target!==fileInput)fileInput.click()};fileInput.onchange=e=>{if(e.target.files[0])analyze(e.target.files[0]);fileInput.value=''};dropzone.ondragover=e=>{e.preventDefault();dropzone.classList.add('dragover')};dropzone.ondragleave=()=>dropzone.classList.remove('dragover');dropzone.ondrop=e=>{e.preventDefault();dropzone.classList.remove('dragover');let f=e.dataTransfer.files[0];if(f)analyze(f)};
