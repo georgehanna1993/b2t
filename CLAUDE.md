@@ -42,6 +42,10 @@ Onset size test also accepts a rise measured over ~30 ms (`onsetLookMs`), so res
 Stem artifacts (`test/stem_artifacts_test.js`): jump detection measures steps between real voiced frames, not across bridged
 gaps (an F#1->B1 hammer-on lost its F#1); an octave-UP tail with no pluck (<8 dB rise) is folded into the note (B1 ending as 'B2');
 a dead note <70 ms before a pitched note is dropped (two-step attack); a short loud hit with no settled pitch becomes a dead note.
+Ghost notes over a ringing note: an energy bump >= 3 dB (odL) while the note is loud and > 120 ms old, inside a pitched note that
+keeps its pitch, with a >= 5 dB short-term rise, adds an 'x' and ends the host note there. An attack on a ringing note that yields no
+pitched note is also an 'x'. Measured: owner's ghosts 5.2-5.6 dB; realistic.js swells 2.1-4.3 dB. Synthetic ghosts are only caught
+in a narrow band (~5-5.5 dB bump): bigger reads as a re-pluck, smaller is ignored.
 Debug helper idea: spectrogram PNG with detected notes overlaid (numpy+matplotlib) is the best way to judge real files.
 
 ## Next ideas (in rough priority)
@@ -51,6 +55,11 @@ Debug helper idea: spectrogram PNG with detected notes overlaid (numpy+matplotli
 4. MP3 input (browser can decode it; allow the type in `app.js`/`index.html`, then test on real mp3s).
 5. 5-string / other tunings; triplet and swing grids; tempo changes.
 6. Higher accuracy: trained model (e.g. Basic Pitch) offline in Python, with the web UI only displaying results.
+
+## Generality (owner asked: are fixes only for these WAVs?)
+Fixes target mechanisms (sample-rate dependence, octave tails, two-step attacks, ghost touches), each guarded by synthetic tests, but
+thresholds were tuned on only TWO real stems (PTFM, the Nov 2026 stem). More real files with known tabs are the best next investment:
+keep them in samples/ and re-run them after every analysis change.
 
 ## Known limits
 Straight 16th grid at one tempo; steady tonal bleed ~10 dB under the bass can read as a low note; slides slower than ~6 semitones/s are

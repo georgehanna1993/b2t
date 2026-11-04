@@ -44,6 +44,10 @@
     holdFrames: 10,      // a pause shorter than this inside one gesture does not split a slide (~115 ms)
     slapBright: 0.18,    // fraction of attack energy above 1.5 kHz that suggests slap/pop
     muteMaxMs: 170,
+    ghostRiseDb: 3,       // energy rise inside a loud ringing note that marks a ghost (muted) note
+    ghostMaxBelowDb: 15,  // ...only while the note is this close to the loudest notes
+    ghostMinAgeMs: 120,
+    ghostEnergyDb: 5,     // ...and the bump must be at least this big (short-term rise, like the legato test)   // ...and this long after the note's own attack
     muteBeforeNoteMs: 70, // a dead note this close before a pitched note is that note's pluck noise (a two-step attack)
     muteMinRelDb: 19,    // a dead/ghost note must be within this many dB of the loudest notes (quieter blips are bleed)
     quietBlipDb: 24,     // short notes quieter than this (vs the loudest notes) are dropped
@@ -353,6 +357,22 @@
     const floorDb = Math.max(peakDb - CFG.silenceRelDb, -62);
     if (peakDb < -55) throw new Error('This file looks silent.');
 
+    // slap/pop + ghost-note feature signal: full band high-passed at 1.5 kHz
+    const hi = biquad(P.mono, sr, 'highpass', 1500);
+    // high-band click strength per block: a ghost (muted) note over a ringing note barely raises the bass energy but
+    // makes a clear string/finger click above 1.5 kHz
+    const hdb = new Float32Array(nb), hRise = new Float32Array(nb);
+    for (let b = 0; b < nb; b++) {
+      const s0 = Math.floor(b * HOP * P.D), s1 = Math.min(hi.length, s0 + Math.floor(WIN * P.D)); let e = 0;
+      for (let i = s0; i < s1; i++) e += hi[i] * hi[i];
+      hdb[b] = 10 * Math.log10(e / Math.max(1, s1 - s0) + 1e-12);
+    }
+    for (let b = 6; b < nb; b++) {
+      let lo = 1e9, top = -1e9;
+      for (let k = 1; k <= 6; k++) lo = Math.min(lo, hdb[b - k]);
+      for (let k = 0; k <= 2 && b + k < nb; k++) top = Math.max(top, hdb[b + k]);
+      hRise[b] = top - lo;
+    }
     // onsets
     const od = new Float32Array(nb);
     // od = rise over the last 2 blocks (sharp, gives the attack time). odL = rise over ~onsetLookMs, used only for the
@@ -384,12 +404,24 @@
       if (last && b - last.b < gapB) { if (od[b] > last.od) onsets[onsets.length - 1] = { b, od: od[b] }; continue; }
       onsets.push({ b, od: od[b] });
     }
+    let ghostCands = [];
+    // ghost notes over a ringing note: a ringing note only decays, so a >= ghostRiseDb rise while it is still loud and
+    // well past its attack means the string was touched again (a muted ghost note). Too small for the normal onset test.
+    {
+      const sortedOn = onsets.map(o => o.b), add = [];
+      for (let b = 3; b < nb - 3; b++) {
+        if (odL[b] < CFG.ghostRiseDb || eb[b] < peakDb - CFG.ghostMaxBelowDb) continue;
+        let isMax = true; for (let k = -3; k <= 3; k++) if (k && odL[b + k] > odL[b]) isMax = false;
+        if (!isMax) continue;
+        let prevO = -1e9, nextO = 1e9; sortedOn.forEach(ob => { if (ob <= b) prevO = Math.max(prevO, ob); else nextO = Math.min(nextO, ob); });
+        if ((b - prevO) * HOP / srD > CFG.ghostMinAgeMs / 1000 && (nextO - b) * HOP / srD > 0.06) add.push(b);
+      }
+      ghostCands = add;
+    }
     let b0 = 0; while (b0 < nb && eb[b0] < floorDb) b0++;
     if (b0 < nb - 8 && eb[b0] >= peakDb - 12 && (!onsets.length || onsets[0].b > b0 + 8)) onsets.unshift({ b: b0, od: 0 });
     if (!onsets.length) throw new Error('No note attacks found. Try a cleaner isolated bass WAV.');
 
-    // slap/pop feature signal: full band high-passed at 1.5 kHz
-    const hi = biquad(P.mono, sr, 'highpass', 1500);
     const D = P.D;
     function attackFeatures(sampleD, fromSilence) {
       // A note that begins from digital silence carries a one-sample click (an artefact of stem separation,
@@ -449,7 +481,7 @@
       }
       if (voiced < 1) {
         const ms = L * HOP / srD * 1000;
-        if (ms <= CFG.muteMaxMs && on.od >= 8 && segPeak >= peakDb - CFG.muteMinRelDb) notes.push({ time: tOn, mf: NaN, midi: null, dur: Math.max(0.05, L * HOP / srD), confidence: 0.45, technique: 'muted', mute: true, feat });
+        if ((ms <= CFG.muteMaxMs && on.od >= 8 && segPeak >= peakDb - CFG.muteMinRelDb)) notes.push({ time: tOn, mf: NaN, midi: null, dur: Math.max(0.05, Math.min(L * HOP / srD, CFG.muteMaxMs / 1000)), confidence: 0.45, technique: 'muted', mute: true, feat });
         if (i % 20 === 19) { progress(10 + 85 * (i + 1) / onsets.length); await yieldUI(); }
         continue;
       }
@@ -477,10 +509,24 @@
       });
       // a loud, short hit whose pitch never settled (1-2 frames) gave no note at all: it is a dead note, not nothing
       const ms_ = L * HOP / srD * 1000;
-      if (notes.length === before && ms_ <= CFG.muteMaxMs && on.od >= 8 && segPeak >= peakDb - CFG.muteMinRelDb)
-        notes.push({ time: tOn, mf: NaN, midi: null, dur: Math.max(0.05, L * HOP / srD), confidence: 0.4, technique: 'muted', mute: true, feat });
+      // ...also when it lands on a note that is still ringing (then the segment runs on with the old note's tail)
+      const ringing = eb[Math.max(0, bS - 2)] > peakDb - CFG.ghostMaxBelowDb;
+      if (notes.length === before && segPeak >= peakDb - CFG.muteMinRelDb && ((ms_ <= CFG.muteMaxMs && on.od >= 8) || ringing))
+        notes.push({ time: tOn, mf: NaN, midi: null, dur: Math.max(0.05, Math.min(L * HOP / srD, CFG.muteMaxMs / 1000)), confidence: 0.4, technique: 'muted', mute: true, feat });
       if (i % 20 === 19) { progress(10 + 85 * (i + 1) / onsets.length); await yieldUI(); }
     }
+
+    // ghost notes: only INSIDE a pitched note that keeps its pitch (no note starts nearby) and with a real energy
+    // bump (measured: the owner's ghosts 5.2-5.6 dB; sidechain/beating swells in realistic.js 2.1-4.3 dB)
+    ghostCands.forEach(b => {
+      const tC = (b * HOP + 64) / srD;
+      if (notes.some(n => Math.abs(n.time - tC) < 0.08)) return;
+      const host = notes.find(n => !n.mute && tC > n.time + CFG.ghostMinAgeMs / 1000 && tC < n.time + n.dur + 0.03);
+      if (!host || host.slideToF != null || energyRise(tC) < CFG.ghostEnergyDb) return;
+      host.dur = Math.max(0.05, tC - host.time);
+      notes.push({ time: tC, mf: NaN, midi: null, dur: 0.08, confidence: 0.4, technique: 'muted', mute: true, ghost: true, feat: null });
+    });
+    notes.sort((p, q) => p.time - q.time);
 
     // global tuning offset (bass a little sharp/flat of A=440)
     const pitched = notes.filter(n => !n.mute && !isNaN(n.mf));

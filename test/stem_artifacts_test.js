@@ -6,6 +6,7 @@
 //  3. short loud hit with no settled pitch produced no note at all (should be a dead note). NOTE: this synthetic
 //     case does NOT fail on the old code (could not reproduce the 1-voiced-frame condition); it is a guard only,
 //     the fix was verified on the real stem (13.57 s).
+//  5. ghost note over a ringing note (bump too small for the onset test) was missed (real stem 15.64 s / 16.26 s)
 //  4. F#1 -> B1 hammer-on where the pitch sags just before the jump and the tracker drops out for a few
 //     frames during it: the F#1 vanished into the B1
 const A = require('../analysis.js');
@@ -42,6 +43,15 @@ const cases = [];
   want.push([1.0, 'x']);
   tone(out, 1.6, 0.4, () => 40); want.push([1.6, 40]);
   cases.push({ name: 'short loud hit becomes a dead note', out, want });
+}
+{ // 5: ghost touch inside a ringing note: the energy dips and comes back ~6 dB with a click, same pitch -> 'x'.
+  //    A gentle 3 dB swell (sidechain pumping) must NOT become a ghost.
+  const out = new Float32Array(SR * 3), want = [];
+  const ghostEnv = tg => s => { const u = s - tg; const dip = P('DIP') || 0.5, top = P('TOP') || 1.1; return u < -0.03 ? 1 : u < 0 ? 1 - (1 - dip) * (u + 0.03) / 0.03 : dip + (top - dip) * Math.min(1, u / 0.01) * Math.exp(-u * 4); };
+  tone(out, 0.3, 0.6, () => 38, { env: ghostEnv(0.33) }); want.push([0.3, 38], [0.63, 'x']);
+  for (let i = Math.floor(0.63 * SR); i < Math.floor(0.636 * SR); i++) out[i] += (rand() * 2 - 1) * 0.15;
+  tone(out, 1.5, 0.6, () => 38, { env: s => 1 + 0.4 * Math.max(0, Math.sin(Math.PI * (s - 0.3) / 0.15)) * (s > 0.3 && s < 0.45 ? 1 : 0) }); want.push([1.5, 38]);
+  cases.push({ name: 'ghost touch inside a ringing note is an x, a 3 dB swell is not', out, want });
 }
 let pass = 0, fail = 0;
 const check = (ok, name, info) => { ok ? pass++ : fail++; console.log(`${ok ? 'ok  ' : 'FAIL'} ${name}${ok ? '' : ' | ' + info}`); };
