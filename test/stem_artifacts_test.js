@@ -11,6 +11,9 @@
 //     measure like the real one already triggers the normal onset test).
 //  5. ghost note over a ringing note (bump too small for the onset test) was missed (real stem 15.64 s / 16.26 s);
 //     the string is muted afterwards (the real ghost fell 49 dB in 150 ms), which is what tells it from a re-pluck
+//  7. fret-touch blip: the fretting finger lands on a ringing open E to mute it and briefly sounds F (no pluck, ~50-100 ms,
+//     synthetic 100 ms blip fails on the old code; shorter synthetic ones were already dropped as too few frames;
+//     right before the next E pluck). It was read as an F1 note (Another One Bites the Dust, 17 times).
 //  4. F#1 -> B1 hammer-on where the pitch sags just before the jump and the tracker drops out for a few
 //     frames during it: the F#1 vanished into the B1
 const A = require('../analysis.js');
@@ -76,6 +79,16 @@ const cases = [];
     }
     cases.push({ name: `same note re-plucked while ringing (${kind})`, out, want });
   }
+}
+{ // 7: E1 ... (finger lands: pitch goes to F1, level drops) ... E1 plucked again
+  const out = new Float32Array(SR * 3), want = [], BL = P('BLIP') || 0.1, DROP = P('DROP') || 6;
+  [0.3, 0.75, 1.2, 1.65].forEach((t, k, a) => {
+    const len = k < a.length - 1 ? a[k + 1] - t : 0.4, b0 = len - BL;
+    const w = u => (k < a.length - 1 ? Math.max(0, Math.min(1, (u - b0) / 0.015)) : 0); // 15 ms smooth finger landing
+    tone(out, t, len, u => 28 + w(u), { env: u => Math.pow(10, -DROP * w(u) / 20) });
+    want.push([t, 28]);
+  });
+  cases.push({ name: 'fret-touch blip before a re-pluck is not a note', out, want });
 }
 let pass = 0, fail = 0;
 const check = (ok, name, info) => { ok ? pass++ : fail++; console.log(`${ok ? 'ok  ' : 'FAIL'} ${name}${ok ? '' : ' | ' + info}`); };

@@ -26,6 +26,7 @@
     onsetDb: 5,          // minimum energy rise (dB) to call an onset
     onsetGapMs: 55,      // minimum spacing between onsets
     onsetLookMs: 30,     // energy rise is measured against the quietest point this far back (in ms, so it does not depend on sample rate)
+    fretBlipMaxMs: 110,  // a +-1 semitone blip with no pluck between two notes of one pitch is a muting finger, not a note
     silenceRelDb: 36,    // anything this far below the loud notes is silence (hum, hiss, tails)
     runTol: 0.55,        // semitones: frame belongs to the current pitch plateau
     stableSpread: 0.35,  // semitones: 3 frames this tight form a new plateau
@@ -512,7 +513,7 @@
         const endT = p.slideEndIdx !== null ? fr[p.slideEndIdx].t : Math.max(fr[p.endIdx].t, time + 0.05);
         const lenF = Math.min(1, p.frames / 4);
         const conf = (p.conf.reduce((a, b) => a + b, 0) / p.conf.length) * (0.55 + 0.45 * lenF);
-        const note = { level: segPeak - peakDb, time, mf: p.mf, midi: null, dur: Math.max(0.05, endT - time), confidence: Math.min(0.99, conf), technique: p.technique, feat: isFirst ? feat : null };
+        const note = { level: segPeak - peakDb, time, mf: p.mf, midi: null, dur: Math.max(0.05, endT - time), confidence: Math.min(0.99, conf), technique: p.technique, feat: isFirst ? feat : null, inner: !isFirst };
         if (!isFirst && p.technique === 'legato') { note.rise = energyRise(time); if (note.rise >= CFG.legatoMaxRiseDb) note.technique = null; }
         if (p.octaveTail && k > 0 && energyRise(time) < CFG.legatoMaxRiseDb) { // octave-up tail with no pluck (measured: tails 1.7-2.5 dB, real plucks 14-19 dB)
           const prev = notes[notes.length - 1]; if (prev && prev.time < time) prev.dur = Math.max(prev.dur, endT - prev.time);
@@ -573,7 +574,14 @@
         if (Math.abs(Math.abs(diff) - 12) <= 1.5 && n.confidence < 0.6) { n.midi -= 12 * Math.sign(diff); n.confidence *= 0.8; n.octaveFixed = true; if (n.slideTo != null) n.slideTo -= 12 * Math.sign(diff); }
       }
     }
-    const kept = notes.filter(n => n.mute || (n.midi >= CFG.minMidi && n.midi <= CFG.maxMidi));
+    // fret-touch blip: a short pitch change with no pluck of its own, one semitone off, right before the string is plucked
+    // again at the old pitch (E -> 'F' -> E). The fretting finger landing on a ringing string to mute it sounds the next fret.
+    for (let i = 1; i < real.length - 1; i++) {
+      const p = real[i - 1], n = real[i], q = real[i + 1];
+      if (n.inner && n.slideToF == null && p.slideToF == null && n.dur <= CFG.fretBlipMaxMs / 1000 && Math.abs(n.midi - p.midi) === 1 && q.midi === p.midi &&
+          q.time - (n.time + n.dur) < 0.06 && n.time - p.time < 1) { n.blip = true; p.dur = Math.max(p.dur, n.time + n.dur - p.time); }
+    }
+    const kept = notes.filter(n => !n.blip && (n.mute || (n.midi >= CFG.minMidi && n.midi <= CFG.maxMidi)));
 
     // slap / pop: bright attack
     kept.forEach(n => {

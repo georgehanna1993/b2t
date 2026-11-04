@@ -46,6 +46,8 @@ Ghost notes over a ringing note: an energy bump >= 3 dB (odL) while the note is 
 keeps its pitch, with a >= 5 dB short-term rise, adds an 'x' and ends the host note there. An attack on a ringing note that yields no
 pitched note is also an 'x'. Measured: owner's ghosts 5.2-5.6 dB; realistic.js swells 2.1-4.3 dB. Synthetic ghosts are only caught
 in a narrow band (~5-5.5 dB bump): bigger reads as a re-pluck, smaller is ignored.
+Fret-touch blip: a +-1 semitone pitch change with no pluck (<= 110 ms) between two notes of one pitch is dropped - the fretting
+finger landing on a ringing open E sounds F for a moment (AOBTD: 17 false F1s).
 Same-note re-plucks while the string rings (legato eighths): a ghost candidate with a >= 3 dB dip just before it, OR a >= 16 dB
 click above 1.5 kHz, AND the level still within 4 dB 150 ms later, splits the note (a ghost instead dies away).
 
@@ -56,6 +58,9 @@ owner's tabs and stay in samples/ (copyrighted). Decode MP3s like the browser do
 | song | file | found | precision |
 |---|---|---|---|
 | Come Together (Beatles) | samples/ct48.wav + ct_ref.js | 42.9% -> 54.9% (44.1k: 56.6%) | 67.5% -> 72.8% |
+| Another One Bites the Dust (Queen) | samples/ab48.wav + ab_ref.js | 89.8% (44.1k: 89.3%) | 87.9% -> 91.5% (44.1k: 92.4%) |
+AOBTD tab is "one pass of the main parts": riff shapes from the tab, repeat counts from the stem's section layout. Remaining
+losses there: chorus bars (C C C C# D) partly misread, a few doubled/merged 16ths.
 Biggest remaining losses: legato repeated eighths in the outro/solos (re-plucks invisible in the bass band), wrong pitches in the
 riff (the high F3 tied note / G-A hammer read as a slide), octave errors. repluckClickDb 10 would give 59.5% but adds a doubtful
 note to the Nov stem (14.66 s) - ask the owner.
