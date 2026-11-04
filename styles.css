@@ -20,3 +20,21 @@
 .tech-mark{position:absolute;transform:translate(-50%,-50%);z-index:5;font:700 9px 'Trebuchet MS',Arial,sans-serif;color:#30231d;background:#FFA97B;padding:1px 4px;border-radius:3px;white-space:nowrap;pointer-events:none}
 .tab-note-name{position:absolute;display:none;transform:translateX(-50%);font:10px 'Courier New',monospace;color:#888c7d;white-space:nowrap;z-index:2}
 .show-names .tab-note-name{display:block}
+
+/* ===== notation layer (tabview.js) ===== */
+.tab-svg{position:absolute;left:0;top:0;pointer-events:none;z-index:1;overflow:visible}
+.tab-cursor{position:absolute;top:0;bottom:0;width:2px;margin-left:-1px;background:#E00000;opacity:.5;z-index:5;pointer-events:none;border-radius:1px}
+.tab-note.slide-end{background:#fff8e9;border:0;color:#a90000;box-shadow:0 0 0 2px #fff8e9}
+.tab-note.tied{color:#7a4a3a}
+.tab-note.muted{font-size:14px;font-weight:700;background:#fff8e9;color:#30231d;border:0;box-shadow:0 0 0 2px #fff8e9}
+.tab-note.muted:before{content:none}
+.tab-note.current.muted,.tab-note.current.tied{background:#9FED72;box-shadow:0 0 0 2px #9FED72}
+.tempo-control{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:8px}
+.tempo-control label{font:700 10px 'Trebuchet MS',Arial,sans-serif;letter-spacing:.08em;min-width:42px}
+.tempo-control input{width:74px;padding:4px 6px;border:1px solid #c9b79d;border-radius:4px;background:#fff8e9;font:12px 'Courier New',monospace}
+.tempo-control small{flex-basis:100%;color:#8b7a66;font:10px 'Trebuchet MS',Arial,sans-serif}
+.legend{margin:6px 21px 0;border-top:1px dashed #dcc9ad;padding:8px 0 2px;font:12px/1.5 'Trebuchet MS',Arial,sans-serif;color:#54382b}
+.legend summary{cursor:pointer;font:700 10px 'Trebuchet MS',Arial,sans-serif;letter-spacing:.1em;list-style:none}
+.legend summary span{font-weight:400;color:#9b8d7a;letter-spacing:.04em;margin-left:6px}
+.legend-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:2px 24px;margin-top:8px}
+.legend-grid p{margin:2px 0}

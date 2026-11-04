@@ -7,7 +7,7 @@
  *                   plateaus -> slide (gradual glide) / legato (instant jump)
  *   4. techniques   slap (bright attack), muted (transient with no pitch)
  *   5. cleanup      global tuning offset, octave-glitch repair
- *   6. assignFrets  Viterbi search for the most playable string/fret path
+ *   (string/fret choice lives in fingering.js, rhythm in rhythm.js)
  *
  * Works in the browser (window.LowlineAnalysis) and in Node (module.exports).
  * All tunable thresholds live in CFG.
@@ -43,6 +43,7 @@
     holdFrames: 10,      // a pause shorter than this inside one gesture does not split a slide (~115 ms)
     slapBright: 0.15,    // fraction of attack energy above 1.5 kHz that suggests slap/pop
     muteMaxMs: 170,
+    vibratoMinSemis: 0.30,
     unvoicedCost: 0.35,
     voicingSwitchCost: 0.3,
     minMidi: 23,
@@ -275,6 +276,12 @@
       }
       prevR = R;
     }
+    // a glide that runs into the end of the note (no landing) is a slide-OUT; one that starts the note is a slide-IN
+    pieces.forEach(q => { if (q.slideToF !== null && q.lastCount < 4) q.slideOut = q.slideToF > q.mf ? 'up' : 'down'; });
+    const r0 = regions[0], fu = regions.indexOf(usable[0].r);
+    if (fu === 1 && r0.count <= 2 && r0.after && r0.after.type === 'glide' && Math.abs(r0.after.net) >= 1.5 && (r0.after.b - r0.after.a) >= 5 && pieces.length) {
+      pieces[0].slideIn = r0.after.net > 0 ? 'up' : 'down';     // 'up' = slides up into the note from below
+    }
     // big, short excursions that snap back (kick/bleed) are not notes
     const span = q => q.endIdx - q.startIdx + 1;
     for (let k = 1; k < pieces.length - 1;) {
@@ -289,6 +296,30 @@
       if (span(L0) <= 6 && L0.slideToF === null && L0.mf <= CFG.kickMaxMidi && P0.lastM - L0.mf > CFG.hammerMaxSemis + 2 && span(P0) >= 8) pieces.pop();
     }
     return pieces;
+  }
+
+  // ---------- vibrato ----------
+  // pitch wobbles regularly (3.5-9.5 Hz) by at least ~30 cents peak-to-peak around a steady pitch
+  function detectVibrato(vals, frameRate) {
+    const v = vals.filter(q => !isNaN(q));
+    if (v.length < 26 || v.length < 0.8 * vals.length) return false;
+    const W = Math.max(5, Math.round(frameRate / 5.5)), r = [];
+    for (let i = 0; i < v.length; i++) {
+      let a = Math.max(0, i - (W >> 1)), b = Math.min(v.length, i + (W >> 1) + 1), s = 0;
+      for (let q = a; q < b; q++) s += v[q];
+      r.push(v[i] - s / (b - a));
+    }
+    const core = r.slice(W >> 1, r.length - (W >> 1));
+    if (core.length < 12) return false;
+    const sorted = core.slice().sort((x, y) => x - y), p2p = sorted[Math.floor(sorted.length * 0.9)] - sorted[Math.floor(sorted.length * 0.1)];
+    if (p2p < CFG.vibratoMinSemis) return false;
+    const cross = []; let sign = 0;
+    core.forEach((x, i) => { if (Math.abs(x) < 0.05) return; const sg = x > 0 ? 1 : -1; if (sign && sg !== sign) cross.push(i); sign = sg; });
+    if (cross.length < 6) return false;
+    const halves = []; for (let i = 1; i < cross.length; i++) halves.push(cross[i] - cross[i - 1]);
+    const mean = halves.reduce((a, b) => a + b, 0) / halves.length, rate = frameRate / (2 * mean);
+    const sd = Math.sqrt(halves.reduce((a, b) => a + (b - mean) * (b - mean), 0) / halves.length);
+    return rate >= 3.5 && rate <= 9.5 && sd / mean < 0.5;
   }
 
   // ---------- main analysis ----------
@@ -407,7 +438,9 @@
         const note = { time, mf: p.mf, midi: null, dur: Math.max(0.05, endT - time), confidence: Math.min(0.99, conf), technique: p.technique, feat: isFirst ? feat : null };
         if (!isFirst && p.technique === 'legato') { note.rise = energyRise(time); if (note.rise >= CFG.legatoMaxRiseDb) note.technique = null; }
         if (p.frames < CFG.minNoteFrames && conf < 0.8 && p.slideToF === null && !p.technique) return; // 2-3 frames of shaky pitch: noise, not a note
-        if (p.slideToF !== null) { note.slideToF = p.slideToF; note.dur = Math.max(0.15, note.dur); note.technique = 'slide'; }
+        if (p.slideToF !== null) { note.slideToF = p.slideToF; note.dur = Math.max(0.15, note.dur); note.technique = 'slide'; if (p.slideOut) note.slideOut = p.slideOut; }
+        if (p.slideIn) note.slideIn = p.slideIn;
+        if (p.slideToF === null && detectVibrato(fr.slice(p.startIdx, p.endIdx + 1).map(q => q.m), srD / HOP)) note.vibrato = true;
         notes.push(note);
       });
       if (i % 20 === 19) { progress(10 + 85 * (i + 1) / onsets.length); await yieldUI(); }
@@ -421,7 +454,7 @@
       const md = median(offs);
       if (Math.abs(md) > 0.08) tune = md;
     }
-    pitched.forEach(n => { n.midi = Math.round(n.mf - tune); if (n.slideToF != null) n.slideTo = Math.round(n.slideToF - tune); });
+    pitched.forEach(n => { n.midi = Math.round(n.mf - tune); if (n.slideToF != null) { const end = Math.round(n.slideToF - tune); if (n.slideOut) n.slideEnd = end; else n.slideTo = end; } });
 
     // octave-glitch repair: a lone note exactly an octave away from two agreeing neighbours
     const real = notes.filter(n => !n.mute && n.midi != null);
@@ -448,64 +481,6 @@
     return { notes: kept, debug: { peakDb, floorDb, onsets: onsets.length, tuneOffset: tune, srD } };
   }
 
-  // ---------- fretting (Viterbi over string/fret + hand position) ----------
-  // State = (string, fret, handPos). Open strings don't move the hand, so the hand
-  // position carries over; fretted notes within a ~4-fret span are nearly free.
-  function assignFrets(notes, openMidis, maxFret) {
-    maxFret = maxFret == null ? 22 : maxFret;
-    notes.forEach(n => { n.string = null; n.fret = null; n.unplayable = false; });
-    const cands = notes.map(n => {
-      const out = [];
-      openMidis.forEach((open, s) => {
-        const f = n.midi - open;
-        if (f < 0 || f > maxFret) return;
-        let endF = f;
-        if (n.slideTo != null) { endF = n.slideTo - open; if (endF < 0 || endF > maxFret) return; }
-        out.push({ s, f, endF });
-      });
-      return out;
-    });
-    const idx = [];
-    notes.forEach((n, i) => { if (!n.mute && cands[i].length) idx.push(i); });
-    const inDP = new Set(idx), layers = [];
-    idx.forEach((i, k) => {
-      const states = new Map();
-      cands[i].forEach(c => {
-        const own = 0.03 * c.f + (c.f === 0 ? -0.1 : 0) + (n_isSlide(notes[i]) ? 0.02 * Math.max(c.f, c.endF) : 0);
-        if (k === 0) {
-          const pos = c.endF > 0 ? c.endF : (c.f > 0 ? c.f : 2);
-          const key = c.s * 100 + pos;
-          if (!states.has(key) || own < states.get(key).score) states.set(key, { c, pos, score: own, back: null });
-          return;
-        }
-        layers[k - 1].forEach(prev => {
-          let cost = own + 0.3 * Math.abs(c.s - prev.c.s), pos = prev.pos;
-          if (c.f > 0) {
-            const dist = Math.abs(c.f - prev.pos);
-            cost += Math.max(0, dist - 3) * 0.8 + dist * 0.05;
-          } else cost += 0.1;
-          if (c.endF > 0) pos = c.endF; else if (c.f > 0) pos = c.f;
-          const key = c.s * 100 + pos, sc = prev.score + cost;
-          if (!states.has(key) || sc < states.get(key).score) states.set(key, { c, pos, score: sc, back: prev });
-        });
-      });
-      layers.push(Array.from(states.values()));
-    });
-    if (layers.length) {
-      let cur = layers[layers.length - 1].reduce((a, b) => (b.score < a.score ? b : a));
-      for (let k = layers.length - 1; k >= 0; k--) { notes[idx[k]].string = cur.c.s; notes[idx[k]].fret = cur.c.f; cur = cur.back; }
-    }
-    let last = { s: 0, f: 0 };
-    notes.forEach((n, i) => {
-      if (inDP.has(i)) { last = { s: n.string, f: n.fret }; return; }
-      if (n.mute) { n.string = last.s; n.fret = last.f; return; }
-      const alt = openMidis.map((o, s) => ({ s, f: n.midi - o })).filter(c => c.f >= 0 && c.f <= 24).sort((a, b) => a.f - b.f)[0];
-      n.string = alt ? alt.s : 0; n.fret = alt ? alt.f : 0; n.unplayable = !alt;
-    });
-    return notes;
-  }
-  function n_isSlide(n) { return n.slideTo != null; }
-
-  const api = { CFG, analyze, assignFrets, buildPieces, prepare, median };
+  const api = { CFG, analyze, buildPieces, prepare, median, detectVibrato };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.LowlineAnalysis = api;
 })(typeof window !== 'undefined' ? window : globalThis);
