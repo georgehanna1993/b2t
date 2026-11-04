@@ -70,6 +70,10 @@ Player gets a Bass only / Full mix switch. WEIGHTS ARE META'S, PERSONAL/RESEARCH
 Measured on Come Together full mix vs tab: own stem 56.6% found / 73.2% precision; Demucs bass 52.6% / 77.6% (fp16 weights identical;
 int8 52.3% / 77.7% but audibly different, 15.5 dB). Speed: headless WASM, 3 threads: 30 s of audio in ~90 s; real-GPU speed not measured.
 
+Playback: at 100% speed audio plays from the decoded AudioBuffer through Web Audio (`startWA`, `nowTime`, `curPos` in app.js):
+instant start after seek/drag/pause (the <audio> element lagged on real devices). Slowed speeds use <audio> (pitch preserved).
+Footer shows a version label (bump it on UI releases) so the owner can tell a cached page from the new one.
+
 ## Scoring against real tabs (`test/score_tab.js`)
 `node test/score_tab.js samples/song.wav samples/song_ref.js [-v]` aligns detected pitches with a tab's pitch sequence (no timing
 needed) and prints per-section correct / wrong(octave) / missed / extra and precision. Reference files are written by hand from the
