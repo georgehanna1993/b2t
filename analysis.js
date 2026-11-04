@@ -41,8 +41,10 @@
     legatoMaxRiseDb: 8,   // a pitch jump with an energy bump bigger than this at the same moment is a pluck, not a hammer-on
     minNoteFrames: 4,    // notes shorter than this need good confidence to survive
     holdFrames: 10,      // a pause shorter than this inside one gesture does not split a slide (~115 ms)
-    slapBright: 0.15,    // fraction of attack energy above 1.5 kHz that suggests slap/pop
+    slapBright: 0.18,    // fraction of attack energy above 1.5 kHz that suggests slap/pop
     muteMaxMs: 170,
+    muteMinRelDb: 19,    // a dead/ghost note must be within this many dB of the loudest notes (quieter blips are bleed)
+    quietBlipDb: 24,     // short notes quieter than this (vs the loudest notes) are dropped
     vibratoMinSemis: 0.30,
     unvoicedCost: 0.35,
     voicingSwitchCost: 0.3,
@@ -349,7 +351,12 @@
     const gapB = Math.round(CFG.onsetGapMs / 1000 * srD / HOP);
     let onsets = [];
     for (let b = 2; b < nb; b++) {
-      if (od[b] < CFG.onsetDb || eb[b] < floorDb) continue;
+      if (od[b] < CFG.onsetDb) continue;
+      // Loudness gate on the note BODY, not on the block that holds the energy jump. A note that starts
+      // from digital silence (common in separated stems) has its biggest jump while still quiet, so gating
+      // on that block threw the note away entirely.
+      let body = eb[b]; for (let k = 1; k <= 3 && b + k < nb; k++) body = Math.max(body, eb[b + k]);
+      if (body < floorDb) continue;
       let isMax = true;
       for (let k = -3; k <= 3 && isMax; k++) {
         if (!k || b + k < 0 || b + k >= nb) continue;
@@ -367,8 +374,10 @@
     // slap/pop feature signal: full band high-passed at 1.5 kHz
     const hi = biquad(P.mono, sr, 'highpass', 1500);
     const D = P.D;
-    function attackFeatures(sampleD) {
-      const s0 = Math.max(0, Math.floor((sampleD - 8) * D)), s1 = Math.min(P.mono.length, s0 + Math.floor(0.03 * sr));
+    function attackFeatures(sampleD, fromSilence) {
+      // A note that begins from digital silence carries a one-sample click (an artefact of stem separation,
+      // not of playing technique) that reads as slap brightness, so skip the first 3 ms in that case only.
+      const s0 = Math.max(0, Math.floor(fromSilence ? sampleD * D + 0.003 * sr : (sampleD - 8) * D)), s1 = Math.min(P.mono.length, s0 + Math.floor(0.03 * sr));
       let full = 0, high = 0, peak = 0;
       for (let i = s0; i < s1; i++) { const v = P.mono[i]; full += v * v; high += hi[i] * hi[i]; if (Math.abs(v) > peak) peak = Math.abs(v); }
       const n = Math.max(1, s1 - s0), rms = Math.sqrt(full / n);
@@ -412,7 +421,7 @@
       let endB = nextB;
       for (let b = bS + 4; b < nextB; b++) if (eb[b] < segPeak - 30 || eb[b] < floorDb) { endB = b; break; }
       const L = endB - bS, onsetSample = bS * HOP + 64, tOn = onsetSample / srD;
-      const feat = attackFeatures(onsetSample);
+      const feat = attackFeatures(onsetSample, eb[Math.max(0, bS - 2)] < -90);
 
       const tailRms = Math.pow(10, (segPeak - CFG.tailDb) / 20) * 0.7;
       let fr = L >= 5 ? pitchFrames(bS + 2, endB - 4, endB * HOP + 32, tailRms) : [];
@@ -423,7 +432,7 @@
       }
       if (voiced < 1) {
         const ms = L * HOP / srD * 1000;
-        if (ms <= CFG.muteMaxMs && on.od >= 8) notes.push({ time: tOn, mf: NaN, midi: null, dur: Math.max(0.05, L * HOP / srD), confidence: 0.45, technique: 'muted', mute: true, feat });
+        if (ms <= CFG.muteMaxMs && on.od >= 8 && segPeak >= peakDb - CFG.muteMinRelDb) notes.push({ time: tOn, mf: NaN, midi: null, dur: Math.max(0.05, L * HOP / srD), confidence: 0.45, technique: 'muted', mute: true, feat });
         if (i % 20 === 19) { progress(10 + 85 * (i + 1) / onsets.length); await yieldUI(); }
         continue;
       }
@@ -435,8 +444,9 @@
         const endT = p.slideEndIdx !== null ? fr[p.slideEndIdx].t : Math.max(fr[p.endIdx].t, time + 0.05);
         const lenF = Math.min(1, p.frames / 4);
         const conf = (p.conf.reduce((a, b) => a + b, 0) / p.conf.length) * (0.55 + 0.45 * lenF);
-        const note = { time, mf: p.mf, midi: null, dur: Math.max(0.05, endT - time), confidence: Math.min(0.99, conf), technique: p.technique, feat: isFirst ? feat : null };
+        const note = { level: segPeak - peakDb, time, mf: p.mf, midi: null, dur: Math.max(0.05, endT - time), confidence: Math.min(0.99, conf), technique: p.technique, feat: isFirst ? feat : null };
         if (!isFirst && p.technique === 'legato') { note.rise = energyRise(time); if (note.rise >= CFG.legatoMaxRiseDb) note.technique = null; }
+        if (note.dur < 0.12 && note.level < -CFG.quietBlipDb && p.slideToF === null) return; // very short AND very quiet: bleed, not a played note
         if (p.frames < CFG.minNoteFrames && conf < 0.8 && p.slideToF === null && !p.technique) return; // 2-3 frames of shaky pitch: noise, not a note
         if (p.slideToF !== null) { note.slideToF = p.slideToF; note.dur = Math.max(0.15, note.dur); note.technique = 'slide'; if (p.slideOut) note.slideOut = p.slideOut; }
         if (p.slideIn) note.slideIn = p.slideIn;
