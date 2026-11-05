@@ -32,7 +32,12 @@
         <button class="play-round" id="playBtn" aria-label="Play"><span>▶</span></button>
       </div>
       <div class="timeline-wrap"><div class="timeline-meta"><span id="currentTime">00:00</span><span id="durationLabel">00:16</span></div><div class="waveform" id="waveform" role="slider" tabindex="0" aria-label="Audio timeline" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><canvas id="waveCanvas"></canvas><div class="wave-progress" id="waveProgress"></div><div class="wave-cursor" id="waveCursor"></div></div></div>
-      <div class="tab-heading"><h3>THE NOTES <span id="noteCount">· 32 NOTES</span></h3><span class="hint">Click any note or mark to hear it</span></div>
+      <div class="tab-heading"><h3>THE NOTES <span id="noteCount">· 32 NOTES</span></h3><span class="hint">Click any note or mark to hear it</span><span class="tab-tools"><button id="editBtn" aria-pressed="false">✎ Edit</button><button id="pdfBtn">⤓ PDF</button></span></div>
+      <div class="edit-bar" id="editBar" hidden><span id="editInfo">Click a note to select it.</span>
+        <span class="edit-group"><b>Pitch</b><button data-edit="pitch:-1" title="Down a semitone (↓)">−</button><button data-edit="pitch:1" title="Up a semitone (↑)">+</button></span>
+        <span class="edit-group"><b>String</b><button data-edit="string:-1" title="Lower string (Shift+↓)">↓</button><button data-edit="string:1" title="Higher string (Shift+↑)">↑</button></span>
+        <span class="edit-group"><b>Time</b><button data-edit="time:-1" title="One 16th earlier (←)">◀</button><button data-edit="time:1" title="One 16th later (→)">▶</button></span>
+        <span class="edit-group"><button data-edit="add" title="Add a note at the playhead (N)">+ Add note</button><button data-edit="del" title="Delete (Del)">Delete</button><button data-edit="undo" title="Undo (Ctrl+Z)">↶ Undo</button></span></div>
       <div class="tab-scroll" id="tabScroll"><div class="tab-grid" id="tabGrid"></div></div>
       <div class="transport"><button id="restartBtn" aria-label="Back to start">↺</button><button id="pauseBtn">Pause</button><span id="tabTuning">E A D G</span><span class="playing-bars"><i></i><i></i><i></i></span></div>
       <details class="legend" id="legend"><summary>LEGEND <span>what every mark means</span></summary><div class="legend-grid">
@@ -68,7 +73,8 @@
     <div class="phone-note" id="mobileCurrent"><span>NOW</span><b>—</b></div>
     <aside class="fine-print"><p><b>Use your ears, too.</b> Audio-to-tab is an estimate: a question mark means a note is less certain. Click it and listen.</p><a href="#" id="futureLink">About the bass separation</a></aside>
   </main>
-  <footer><span>LOWLINE</span><span>MADE FOR THE LOW NOTES · 2026 · v11-05b</span></footer>
-  <audio id="audioPlayer" preload="auto"></audio><div class="toast" id="toast" role="status"></div><script src="analysis.js"></script><script src="fingering.js"></script><script src="rhythm.js"></script><script src="tabview.js"></script><script src="app.js"></script>
+  <footer><span>LOWLINE</span><span>MADE FOR THE LOW NOTES · 2026 · v11-05c</span></footer>
+  <div id="printArea" aria-hidden="true"></div>
+  <audio id="audioPlayer" preload="auto"></audio><div class="toast" id="toast" role="status"></div><script src="analysis.js"></script><script src="fingering.js"></script><script src="rhythm.js"></script><script src="tabview.js"></script><script src="app.js"></script><script src="editor.js"></script>
 </body>
 </html>

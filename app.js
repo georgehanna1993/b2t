@@ -94,7 +94,10 @@ async function analyze(file){
       const off=new OfflineAudioContext(2,1,44100);buf=await off.decodeAudioData(arr.slice(0));
       if(buf.duration>600)throw new Error('Please use a file shorter than ten minutes.');
       const L=buf.getChannelData(0),R=buf.numberOfChannels>1?buf.getChannelData(1):L;
-      const bass=await separateBass(L,R,(pct,label)=>updateAnalysis(pct,label));
+      const key=[file.name,file.size,file.lastModified].join('|');
+      let bass=await savedBass(key,L.length);
+      if(bass)updateAnalysis(70,'Bass already separated on this device');
+      else{bass=await separateBass(L,R,(pct,label)=>updateAnalysis(pct,label));updateAnalysis(71,"Saving the separated bass on this device…");await saveBass(key,bass)}
       channels=[bass.left,bass.right];rate=44100;
       bassUrl=URL.createObjectURL(wavBlob(channels,rate));
     }else{
@@ -216,3 +219,13 @@ function syncEngine(){const sel=document.getElementById('engineSelect');if(!sel)
   document.getElementById('engineHint').textContent=engine()==='auto'?(gpuCrashed()?'auto: using the processor (the GPU stopped last time)':'auto: GPU if available'):''}
 document.getElementById('engineSelect').onchange=e=>{try{localStorage.setItem('lowlineEngine',e.target.value);if(e.target.value==='gpu')localStorage.removeItem('lowlineGpuCrashed')}catch(_){}syncEngine()};
 syncEngine();
+
+// ---- separated songs are saved in this browser (IndexedDB), so opening the same file again is instant ----
+function bassDb(){return new Promise((res,rej)=>{const q=indexedDB.open('lowline-bass',1);q.onupgradeneeded=()=>q.result.createObjectStore('songs');q.onsuccess=()=>res(q.result);q.onerror=()=>rej(q.error)})}
+async function savedBass(key,n){try{const d=await bassDb();const v=await new Promise(r=>{const q=d.transaction('songs').objectStore('songs').get(key);q.onsuccess=()=>r(q.result);q.onerror=()=>r(null)});
+  if(!v||v.n!==n||v.v!==1)return null;const f=a=>{const o=new Float32Array(a.length);for(let i=0;i<a.length;i++)o[i]=a[i]/32767;return o};return {left:f(v.l),right:f(v.r),backend:'saved'}}catch(e){return null}}
+async function saveBass(key,b){try{const i16=a=>{const o=new Int16Array(a.length);for(let i=0;i<a.length;i++)o[i]=Math.max(-1,Math.min(1,a[i]))*32767;return o};
+  const d=await bassDb(),st=d.transaction('songs','readwrite').objectStore('songs');
+  const all=await new Promise(r=>{const q=st.getAllKeys();q.onsuccess=()=>r(q.result);q.onerror=()=>r([])});
+  const t=d.transaction('songs','readwrite'),os=t.objectStore('songs');if(all.length>=8)os.delete(all[0]);   // keep the last 8 songs (~40 MB each)
+  os.put({v:1,n:b.left.length,l:i16(b.left),r:i16(b.right),t:Date.now()},key);await new Promise(r=>{t.oncomplete=r;t.onerror=r;t.onabort=r})}catch(e){console.warn("bass not saved",e)}}

@@ -79,6 +79,13 @@ switches to CPU automatically (localStorage lowlineGpuCrashed); View & settings 
 Measured on Come Together full mix vs tab: own stem 56.6% found / 73.2% precision; Demucs bass 52.6% / 77.6% (fp16 weights identical;
 int8 52.3% / 77.7% but audibly different, 15.5 dB). Speed: headless WASM, 3 threads: 30 s of audio in ~90 s; real-GPU speed not measured.
 
+Editor (`editor.js`, Nov 2026): ✎ Edit -> click a note to select (hears the recording); pitch +-1 (keeps the string via a
+fingering lock `n.lock`), other string, one 16th earlier/later, delete, add at the playhead, undo; each change plays a synth
+tone. Keys: arrows, Shift+arrows, Del, N, Ctrl+Z, Esc. It wraps `LowlineFingering.assign` (locks), `playClip` and `buildTab`.
+Edits live in memory only (lost on reload). PDF: ⤓ PDF builds #printArea (rows cut at bar lines, 660 px + 38 px label gutter,
+song/tuning/tempo header) and calls window.print(); the browser's "Save as PDF" makes the file.
+Separation speed: overlap 0.25 -> 0.1 (CT full: 208 s -> 146 s CLI, notes 62.4% -> 63.1%, precision 79.9% -> 80.9%).
+Separated songs are saved in IndexedDB 'lowline-bass' (Int16, key name|size|lastModified, last 8): reopening is instant (0.6 s).
 Playback: at 100% speed audio plays from the decoded AudioBuffer through Web Audio (`startWA`, `nowTime`, `curPos` in app.js):
 instant start after seek/drag/pause (the <audio> element lagged on real devices). Slowed speeds use <audio> (pitch preserved).
 Footer shows a version label (bump it on UI releases) so the owner can tell a cached page from the new one.
