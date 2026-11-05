@@ -54,7 +54,7 @@
   function snapshot() { undo.push({ notes: notes.map(n => Object.assign({}, n, { lock: n.lock ? Object.assign({}, n.lock) : undefined })), sel: notes.indexOf(sel) }); if (undo.length > 200) undo.shift(); }
   function changed(play) {
     if (sel) { sel.confidence = 1; sel.edited = true; }
-    buildTab();
+    buildTab(); saveSoon();
     $('noteCount').textContent = `· ${notes.length} NOTES`;
     if (play && sel && !sel.mute) tone(sel.midi, sel.slideTo);
     panel();
@@ -80,11 +80,12 @@
   const opt = (v, label, cur) => `<option value="${v}"${String(v) === String(cur) ? ' selected' : ''}>${label}</option>`;
   const noteOptions = cur => { let h = ''; for (let m = 64; m >= 21; m--) h += opt(m, nameOf(m), cur); return h; };
 
+  function hasSaved() { const b = $('resetEdits'); return b ? !b.hidden : savedFlag; }
   function panel() {
     const box = $('editBar'); if (!box) return;
     if (!editMode) { box.hidden = true; return; }
     box.hidden = false;
-    const tools = `<span class="ed-actions"><button data-op="add">+ Add note</button><button data-op="undo">↶ Undo</button></span>`;
+    const tools = `<span class="ed-actions"><button data-op="add">+ Add note</button><button data-op="undo">↶ Undo</button><button data-op="reset" id="resetEdits"${hasSaved() ? '' : ' hidden'} title="Throw away your edits for this song">Reset to detected</button></span>`;
     if (!sel || notes.indexOf(sel) < 0) { box.innerHTML = `<p class="ed-hint">Click a note to edit it, or add one at the playhead (click the waveform to place the playhead).</p>${tools}`; wire(); return; }
     const n = sel, len = Math.max(1, Math.round(n.dur / p16())), tech = techOf(n), pos = n.mute ? [] : positions(n.midi);
     const curPosKey = n.string != null ? `${n.string}:${n.fret}` : '';
@@ -140,8 +141,42 @@
       const n = { time: t, midi: m, mf: m, dur: 2 * p16() * 0.98, confidence: 1, edited: true, added: true, technique: null };
       notes.push(n); notes.sort((a, b) => a.time - b.time); sel = n; changed(true);
     },
-    undo() { const u = undo.pop(); if (!u) return toast('Nothing to undo.'); notes = u.notes; sel = notes[u.sel] || null; changed(false); }
+    undo() { const u = undo.pop(); if (!u) return toast('Nothing to undo.'); notes = u.notes; sel = notes[u.sel] || null; changed(false); },
+    reset() { resetEdits(); }
   };
+  // ---- edits are saved in this browser per song file (IndexedDB 'lowline-edits'), restored when the same file is opened ----
+  const KEEP = ['time', 'dur', 'midi', 'mf', 'mute', 'technique', 'slideTo', 'slideToF', 'slideIn', 'slideOut', 'slap', 'vibrato', 'confidence', 'lock', 'edited', 'added', 'level'];
+  let original = null, saveTimer = 0, dirty = false, savedFlag = false;
+  function db() { return new Promise((res, rej) => { const q = indexedDB.open('lowline-edits', 1); q.onupgradeneeded = () => q.result.createObjectStore('songs'); q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error); }); }
+  async function idb(mode, fn) { const d = await db(); return new Promise(r => { const t = d.transaction('songs', mode), q = fn(t.objectStore('songs')); t.oncomplete = () => r(q && q.result); t.onerror = t.onabort = () => r(null); }); }
+  const pack = ns => ns.map(n => { const o = {}; KEEP.forEach(k => { if (n[k] !== undefined && n[k] !== null && n[k] !== false) o[k] = n[k]; }); return o; });
+  function saveSoon() { dirty = true; clearTimeout(saveTimer); saveTimer = setTimeout(saveNow, 400); }
+  async function saveNow() {
+    const key = window.songKey; if (!key || !dirty) return; dirty = false;
+    try { await idb('readwrite', st => st.put({ v: 1, t: Date.now(), notes: pack(notes), rhythm: { bpm: rhythmState.bpm, origin: rhythmState.origin, sig: rhythmState.sig, shiftBeats: rhythmState.shiftBeats, auto: rhythmState.auto } }, key)); setSaved(true); }
+    catch (e) { toast('Could not save your edits in this browser.'); }
+  }
+  function setSaved(has) { savedFlag = has; const b = $('resetEdits'); if (b) b.hidden = !has; }
+  async function restore(key) {
+    original = notes.map(n => Object.assign({}, n)); undo.length = 0; sel = null;
+    let v = null; try { v = key ? await idb('readonly', st => st.get(key)) : null; } catch (e) { v = null; }
+    if (!v || !v.notes || !v.notes.length) { setSaved(false); return false; }
+    notes = v.notes.map(o => Object.assign({}, o));
+    if (v.rhythm) Object.assign(rhythmState, v.rhythm);
+    setSaved(true); toast('Your edits for this song were restored.');
+    return true;
+  }
+  async function resetEdits() {
+    if (!original) return; if (!confirm('Throw away your edits for this song and go back to the detected notes?')) return;
+    snapshot(); notes = original.map(n => Object.assign({}, n)); sel = null;
+    try { await idb('readwrite', st => st.delete(window.songKey)); } catch (e) {}
+    dirty = false; setSaved(false); autoRhythm(); buildTab(); $('noteCount').textContent = `· ${notes.length} NOTES`; panel(); toast('Back to the detected notes.');
+  }
+  // tempo / time signature / bar-line changes are part of the edit too
+  ['bpmInput', 'sigSelect', 'autoTempoBtn', 'barPrevBtn', 'barNextBtn'].forEach(id => { const el = $(id); if (el) el.addEventListener(el.tagName === 'BUTTON' ? 'click' : 'change', () => { if (window.songKey && (dirty || $('resetEdits') && !$('resetEdits').hidden || editMode)) saveSoon(); }); });
+  window.addEventListener('pagehide', () => { if (dirty) saveNow(); });
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden' && dirty) saveNow(); });
+
   function setMode(on) {
     editMode = on; document.body.classList.toggle('editing', on);
     $('editBtn').setAttribute('aria-pressed', on); $('editBtn').textContent = on ? '✓ Done' : '✎ Edit';
@@ -205,5 +240,5 @@
     const o = readOpts(); if (!pdfDoc) await preview();
     pdfDoc.save(fileName(o)); $('pdfStatus').textContent = 'Saved: ' + fileName(o);
   };
-  window.LowlineEditor = { ops, select, setMode, makePdf, preview, positions, get sel() { return sel; }, get editMode() { return editMode; } };
+  window.LowlineEditor = { ops, select, setMode, makePdf, preview, restore, saveNow, positions, get sel() { return sel; }, get editMode() { return editMode; } };
 })();

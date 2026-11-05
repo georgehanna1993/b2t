@@ -83,7 +83,8 @@ Editor (`editor.js`, Nov 2026): ✎ Edit -> click a note -> note panel: note (se
 can), string & fret (every position, incl. 8va), start (one 16th per step), length (16th..whole, sets n.dur), technique
 (plucked, H/P, slide to <note>, slide in/out, slap/pop, vibrato, dead), hear, delete, add at the playhead, undo. A changed or
 added note (`n.edited`) plays as a synth tone when clicked (the recording has the old pitch). Position choices are fingering locks
-(`n.lock`). It wraps `LowlineFingering.assign`, `playClip` and `buildTab`. Edits live in memory only (lost on reload).
+(`n.lock`). It wraps `LowlineFingering.assign`, `playClip` and `buildTab`. Edits are saved per song file (IndexedDB 'lowline-edits', key name|size|lastModified, compact note fields + tempo/sig/bar shift),
+restored when the same file is opened; Edit -> 'Reset to detected' deletes them.
 PDF (`pdfexport.js`, loaded on demand with vendor/jspdf): vector drawing, laid out like a tab book: bar widths from note
 values (3.2 pt per 16th, min 12 pt per event), bars packed into systems, every system but a short last one justified to the page
 width. Options dialog with a live preview (iframe of the blob; a new-tab link for browsers without an inline PDF viewer):

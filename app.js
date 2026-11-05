@@ -71,7 +71,7 @@ async function play(){clipEnd=null;clearTimeout(clipTimer);if(playing)return;if(
 function setPosition(t){t=Math.max(0,Math.min(duration,t));curPos=t;if(!useWA()&&audio.src)try{audio.currentTime=t}catch(e){}if(!audio.src)window.lastDemoNote=-1;const pct=duration?t/duration*100:0;document.getElementById('waveCursor').style.left=pct+'%';document.getElementById('waveProgress').style.width=pct+'%';document.getElementById('currentTime').textContent=fmt(t);let i=-1;for(let j=0;j<notes.length;j++)if(notes[j].time<=t)i=j;if(i!==currentIndex)highlight(i);syncTab(t)}
 function seek(t){if(playing){pause();setPosition(t);play()}else setPosition(t)}
 function buildDemoWav(){const sr=44100,count=Math.ceil(duration*sr),samples=new Float32Array(count);demoTimes.forEach((n,k)=>{const from=Math.floor(n.time*sr),next=demoTimes[k+1]?.time??duration,to=Math.min(count,Math.floor(next*sr)),f=440*Math.pow(2,(n.midi-69)/12);for(let i=from;i<to;i++){const t=(i-from)/sr,attack=Math.min(1,t/.004),env=attack*Math.exp(-t*4.1),tone=Math.sin(2*Math.PI*f*t)*.58+Math.sin(4*Math.PI*f*t)*.25+Math.sin(6*Math.PI*f*t)*.11+Math.sin(8*Math.PI*f*t)*.045;samples[i]+=tone*env*.72}});const ab=new ArrayBuffer(44+count*2),v=new DataView(ab),write=(o,s)=>{for(let i=0;i<s.length;i++)v.setUint8(o+i,s.charCodeAt(i))};write(0,'RIFF');v.setUint32(4,36+count*2,true);write(8,'WAVE');write(12,'fmt ');v.setUint32(16,16,true);v.setUint16(20,1,true);v.setUint16(22,1,true);v.setUint32(24,sr,true);v.setUint32(28,sr*2,true);v.setUint16(32,2,true);v.setUint16(34,16,true);write(36,'data');v.setUint32(40,count*2,true);for(let i=0;i<count;i++)v.setInt16(44+i*2,Math.round(Math.max(-1,Math.min(1,samples[i]))*32767),true);return new Blob([ab],{type:'audio/wav'})}
-function makeDemo(){pause();waBufs={main:null,bass:null};curPos=0;lastPeaks=null;setBassSwitch(false);decoded=null;duration=16;notes=demoTimes.map(x=>({...x}));octaveApplied=0;loopStart=2;loopEnd=6;if(demoUrl)URL.revokeObjectURL(demoUrl);demoUrl=URL.createObjectURL(buildDemoWav());audio.src=demoUrl;audio.load();audio.currentTime=0;audio.preservesPitch=true;document.getElementById('trackName').innerHTML='Pocket groove <span>—</span> Lowline session';document.getElementById('trackSub').textContent='Demo bass · E standard tuning';document.getElementById('demoPill').style.display='';document.getElementById('playerSection').classList.add('visible');setWave(demoWave());autoRhythm();buildTab();seek(0);}
+function makeDemo(){pause();window.songKey=null;waBufs={main:null,bass:null};curPos=0;lastPeaks=null;setBassSwitch(false);decoded=null;duration=16;notes=demoTimes.map(x=>({...x}));octaveApplied=0;loopStart=2;loopEnd=6;if(demoUrl)URL.revokeObjectURL(demoUrl);demoUrl=URL.createObjectURL(buildDemoWav());audio.src=demoUrl;audio.load();audio.currentTime=0;audio.preservesPitch=true;document.getElementById('trackName').innerHTML='Pocket groove <span>—</span> Lowline session';document.getElementById('trackSub').textContent='Demo bass · E standard tuning';document.getElementById('demoPill').style.display='';document.getElementById('playerSection').classList.add('visible');setWave(demoWave());autoRhythm();buildTab();seek(0);}
 function toast(s){let t=document.getElementById('toast');t.textContent=s;t.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.classList.remove('show'),2600)}
 function updateAnalysis(pct,label){try{localStorage.setItem('lowlineRun',JSON.stringify({pct:Math.round(pct),label,t:Date.now(),dev:navigator.userAgent.slice(0,120),mem:navigator.deviceMemory||null,gpu:!!navigator.gpu}))}catch(e){}document.getElementById('analysisBar').style.width=`${pct}%`;document.getElementById('progressPct').textContent=`${Math.round(pct)}%`;document.getElementById('analysisText').textContent=label}
 async function analyze(file){
@@ -85,7 +85,7 @@ async function analyze(file){
   try{
     const AC=window.AudioContext||window.webkitAudioContext;
     if(!AC)throw new Error('Audio decoding is not supported in this browser.');
-    const arr=await file.arrayBuffer();
+    const arr=await file.arrayBuffer(),songKey=[file.name,file.size,file.lastModified].join('|');window.songKey=songKey;
     const full=srcMode==='full';
     if(objectUrl)URL.revokeObjectURL(objectUrl);if(bassUrl)URL.revokeObjectURL(bassUrl);bassUrl=null;
     objectUrl=URL.createObjectURL(file);
@@ -94,7 +94,7 @@ async function analyze(file){
       const off=new OfflineAudioContext(2,1,44100);buf=await off.decodeAudioData(arr.slice(0));
       if(buf.duration>600)throw new Error('Please use a file shorter than ten minutes.');
       const L=buf.getChannelData(0),R=buf.numberOfChannels>1?buf.getChannelData(1):L;
-      const key=[file.name,file.size,file.lastModified].join('|');
+      const key=songKey;
       let bass=await savedBass(key,L.length);
       if(bass)updateAnalysis(70,'Bass already separated on this device');
       else{bass=await separateBass(L,R,(pct,label)=>updateAnalysis(pct,label));updateAnalysis(71,"Saving the separated bass on this device…");await saveBass(key,bass)}
@@ -121,8 +121,8 @@ async function analyze(file){
     document.getElementById('trackName').innerHTML=`${file.name.replace(/</g,'&lt;')} <span>—</span> your bassline`;
     document.getElementById('trackSub').textContent=full?'Bass separated from the full song · click a note to hear it':'Estimated tab · click a note to hear it';
     document.getElementById('demoPill').style.display='none';
-    lastPeaks=peaks;setWave(peaks);autoRhythm();buildTab();seek(0);updateAnalysis(100,'Analysis complete');try{localStorage.removeItem('lowlineRun')}catch(e){}
-    sl.textContent=`Found ${notes.length} notes. Click any number or mark to hear just that note.`;
+    lastPeaks=peaks;setWave(peaks);autoRhythm();const restored=window.LowlineEditor?await LowlineEditor.restore(songKey):false;buildTab();seek(0);updateAnalysis(100,'Analysis complete');try{localStorage.removeItem('lowlineRun')}catch(e){}
+    sl.textContent=restored?`Your saved edits for this song were restored (${notes.length} notes). Edit → "Reset to detected" goes back to the analysis.`:`Found ${notes.length} notes. Click any number or mark to hear just that note.`;
     document.getElementById('playerSection').classList.add('visible');progress.hidden=true;
     document.getElementById('playerSection').scrollIntoView({behavior:'smooth',block:'nearest'});
   }catch(e){try{localStorage.removeItem('lowlineRun')}catch(_){}sl.textContent=e.message||'This file could not be analyzed. Try another MP3 or WAV.';progress.hidden=true;toast(e.message||'Could not analyze this file.')}
