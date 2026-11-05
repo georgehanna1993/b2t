@@ -66,7 +66,10 @@ Full songs (Nov 2026): "Full song" mode separates the bass in the browser with H
 (`separate-worker.js` + `vendor/demucs.js` (bakkot/demucs-js, MIT, bass-only overlap-add) + `vendor/ort` (onnxruntime-web 1.22)
 + `models/htdemucs_w16.onnx` (weights stored fp16, cast to fp32 on load: 90.5 MB, output = full model, 84 dB SNR)). Model is cached
 with the Cache API. WebGPU first, else multi-threaded WASM (needs cross-origin isolation: `coi-serviceworker.js`). `?cpu=1` forces WASM.
-Player gets a Bass only / Full mix switch. WEIGHTS ARE META'S, PERSONAL/RESEARCH USE ONLY (models/README.txt).
+Player gets a Bass only / Full mix switch. Memory: the model needs ~3 GB of browser RAM on the CPU path regardless of
+song length or threads (measured). Owner's laptop (Dynabook, Intel Gen12 iGPU, 31 GB, Chrome 156) restarts the page mid-run, most
+likely a GPU timeout on the iGPU (chrome applies exit_on_context_lost there). If a run dies during '(GPU)' separation, that browser
+switches to CPU automatically (localStorage lowlineGpuCrashed); View & settings -> Separation: Auto / GPU / CPU. WEIGHTS ARE META'S, PERSONAL/RESEARCH USE ONLY (models/README.txt).
 Measured on Come Together full mix vs tab: own stem 56.6% found / 73.2% precision; Demucs bass 52.6% / 77.6% (fp16 weights identical;
 int8 52.3% / 77.7% but audibly different, 15.5 dB). Speed: headless WASM, 3 threads: 30 s of audio in ~90 s; real-GPU speed not measured.
 

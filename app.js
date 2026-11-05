@@ -118,7 +118,7 @@ async function analyze(file){
     document.getElementById('trackName').innerHTML=`${file.name.replace(/</g,'&lt;')} <span>—</span> your bassline`;
     document.getElementById('trackSub').textContent=full?'Bass separated from the full song · click a note to hear it':'Estimated tab · click a note to hear it';
     document.getElementById('demoPill').style.display='none';
-    try{localStorage.removeItem('lowlineRun')}catch(e){}lastPeaks=peaks;setWave(peaks);autoRhythm();buildTab();seek(0);updateAnalysis(100,'Analysis complete');
+    lastPeaks=peaks;setWave(peaks);autoRhythm();buildTab();seek(0);updateAnalysis(100,'Analysis complete');try{localStorage.removeItem('lowlineRun')}catch(e){}
     sl.textContent=`Found ${notes.length} notes. Click any number or mark to hear just that note.`;
     document.getElementById('playerSection').classList.add('visible');progress.hidden=true;
     document.getElementById('playerSection').scrollIntoView({behavior:'smooth',block:'nearest'});
@@ -188,7 +188,7 @@ function separateBass(left,right,onProgress){
       else if(m.type==='error'){w.terminate();reject(new Error(m.message))}};
     w.onerror=e=>{w.terminate();reject(new Error(e.message||'Bass separation failed in this browser.'))};
     const l=left.slice(),r=right===left?l.slice():right.slice();
-    w.postMessage({cmd:'separate',left:l,right:r,modelUrl:new URL(MODEL_URL,location.href).href,cpuOnly:/[?&]cpu=1/.test(location.search)},[l.buffer,r.buffer]);
+    w.postMessage({cmd:'separate',left:l,right:r,modelUrl:new URL(MODEL_URL,location.href).href,cpuOnly:useCpu()},[l.buffer,r.buffer]);
   });
 }
 function wavBlob(ch,rate){const n=ch[0].length,b=new ArrayBuffer(44+n*2),v=new DataView(b),s=(o,t)=>{for(let i=0;i<t.length;i++)v.setUint8(o+i,t.charCodeAt(i))};
@@ -202,5 +202,17 @@ document.querySelectorAll('[data-mix]').forEach(b=>b.onclick=()=>{hearBass=b.dat
 // ---- if the page died in the middle of a song last time, say where (usually: out of memory on this device) ----
 (()=>{let r=null;try{r=JSON.parse(localStorage.getItem('lowlineRun')||'null');localStorage.removeItem('lowlineRun')}catch(e){}
   if(!r||Date.now()-r.t>3600e3)return;
+  if(/\(GPU\)/.test(r.label||'')){try{localStorage.setItem('lowlineGpuCrashed','1')}catch(e){}
+    const m='Last time the graphics chip stopped in the middle of separating (this happens on some built-in GPUs). From now on this browser separates on the processor instead: slower, but stable. You can change it in View & settings → Separation.';
+    document.getElementById('statusText').textContent=m;window.lowlineLastCrash=r;syncEngine();return}
   const msg=`Last time the page restarted at ${r.pct}% ("${r.label}"). This usually means the browser ran out of memory. Device memory: ${r.mem?r.mem+' GB':'unknown'}, WebGPU: ${r.gpu?'yes':'no'}.`;
   document.getElementById('statusText').textContent=msg;window.lowlineLastCrash=r;console.warn(msg,r)})();
+
+// ---- separation engine: Auto (GPU, unless it crashed before on this browser) / GPU / processor ----
+function engine(){try{return localStorage.getItem('lowlineEngine')||'auto'}catch(e){return 'auto'}}
+function gpuCrashed(){try{return localStorage.getItem('lowlineGpuCrashed')==='1'}catch(e){return false}}
+function useCpu(){return /[?&]cpu=1/.test(location.search)||engine()==='cpu'||(engine()==='auto'&&gpuCrashed())}
+function syncEngine(){const sel=document.getElementById('engineSelect');if(!sel)return;sel.value=engine();
+  document.getElementById('engineHint').textContent=engine()==='auto'?(gpuCrashed()?'auto: using the processor (the GPU stopped last time)':'auto: GPU if available'):''}
+document.getElementById('engineSelect').onchange=e=>{try{localStorage.setItem('lowlineEngine',e.target.value);if(e.target.value==='gpu')localStorage.removeItem('lowlineGpuCrashed')}catch(_){}syncEngine()};
+syncEngine();

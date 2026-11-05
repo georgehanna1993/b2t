@@ -58,6 +58,8 @@
         <label>Tempo<span class="row"><input id="bpmInput" type="number" min="30" max="300" step="0.5" /><button id="autoTempoBtn" type="button">Auto</button></span></label><small id="tempoHint"></small>
         <label>Time signature<select id="sigSelect"><option value="4/4">4/4</option><option value="3/4">3/4</option><option value="2/4">2/4</option><option value="6/8">6/8</option><option value="12/8">12/8</option></select></label>
         <label>Bar lines<span class="row"><button id="barPrevBtn" type="button">◀ 1 beat</button><button id="barNextBtn" type="button">1 beat ▶</button></span></label></div>
+      <div class="panel-group"><h4>Full songs</h4>
+        <label>Separation<select id="engineSelect"><option value="auto">Auto</option><option value="gpu">Graphics chip (fast)</option><option value="cpu">Processor (stable)</option></select></label><small id="engineHint"></small></div>
       <div class="panel-group"><h4>Practice</h4>
         <label>Speed<select id="speedSelect"><option value="1">100%</option><option value="0.8">80%</option><option value="0.65">65%</option><option value="0.5">50%</option></select></label>
         <div class="toggles"><button id="loopBtn" aria-pressed="false">Loop section</button></div></div>
@@ -66,7 +68,7 @@
     <div class="phone-note" id="mobileCurrent"><span>NOW</span><b>—</b></div>
     <aside class="fine-print"><p><b>Use your ears, too.</b> Audio-to-tab is an estimate: a question mark means a note is less certain. Click it and listen.</p><a href="#" id="futureLink">About the bass separation</a></aside>
   </main>
-  <footer><span>LOWLINE</span><span>MADE FOR THE LOW NOTES · 2026 · v11-04d</span></footer>
+  <footer><span>LOWLINE</span><span>MADE FOR THE LOW NOTES · 2026 · v11-05a</span></footer>
   <audio id="audioPlayer" preload="auto"></audio><div class="toast" id="toast" role="status"></div><script src="analysis.js"></script><script src="fingering.js"></script><script src="rhythm.js"></script><script src="tabview.js"></script><script src="app.js"></script>
 </body>
 </html>
