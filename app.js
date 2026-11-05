@@ -30,7 +30,7 @@ function buildTab(){
   applyOctave();
   LowlineFingering.assign(notes,strings());                       // string + fret + finger, repeated phrases identical
   const beatSec=60/rhythmState.bpm;
-  const rh=notes.length?LowlineRhythm.build(notes,{bpm:rhythmState.bpm,origin:rhythmState.origin+rhythmState.shiftBeats*beatSec,sig:rhythmState.sig}):null;
+  const rh=notes.length?LowlineRhythm.build(notes,{bpm:rhythmState.bpm,origin:rhythmState.origin+rhythmState.shiftBeats*beatSec,sig:rhythmState.sig}):null;window.lastRh=rh;
   tabInfo=LowlineTabView.render({grid,notes,rhythm:rh,names:stringNames(),openMidis:strings(),
     opts:{rhythm:showRhythm,bars:showBars,names:showNames,fingers:showFingers,notation:viewMode!=='tab'},midiName,fmt,onSeek:seek,onPlay:playClip});
   notePositions=tabInfo.xs;noteEnds=tabInfo.ends;
@@ -60,8 +60,9 @@ let waSrc=null,waStart=0,waOffset=0,curPos=0,waBufs={main:null,bass:null};
 function getAC(){const AC=window.AudioContext||window.webkitAudioContext;return window.audioContext||(window.audioContext=new AC())}
 function curBuf(){return hearBass&&waBufs.bass?waBufs.bass:waBufs.main}
 function useWA(){return speed===1&&!!curBuf()}
-function startWA(t,dur){const ac=getAC();if(ac.state==='suspended')ac.resume();stopWA();const src=ac.createBufferSource();src.buffer=curBuf();src.connect(ac.destination);
+function startWA(t,dur){const ac=getAC();if(ac.state==='suspended')ac.resume();stopWA();const src=ac.createBufferSource();src.buffer=curBuf();src.connect(recOut());
   if(dur!=null)src.start(0,t,dur);else src.start(0,t);waSrc=src;waStart=ac.currentTime;waOffset=t;src.onended=()=>{if(waSrc===src){waSrc=null;curPos=Math.min(duration,t+(dur!=null?dur:duration))}}}
+function recOut(){const ac=getAC();if(!window.recGain){window.recGain=ac.createGain();window.recGain.connect(ac.destination)}return window.recGain}   // the recording's volume (0 for 'tab only')
 function stopWA(){if(waSrc){const s=waSrc;waSrc=null;s.onended=null;try{s.stop()}catch(e){}}}
 function nowTime(){if(waSrc)return Math.min(duration,waOffset+(getAC().currentTime-waStart));if(!audio.paused)return audio.currentTime;return curPos}
 function syncTab(t){const view=document.getElementById('tabScroll'),maxScroll=Math.max(0,view.scrollWidth-view.clientWidth),x=playheadX(t);if(tabInfo&&tabInfo.cursor)tabInfo.cursor.style.left=x+'px';view.scrollLeft=Math.max(0,Math.min(maxScroll,x-view.clientWidth*.45))}
@@ -123,7 +124,7 @@ async function analyze(file){
     document.getElementById('demoPill').style.display='none';
     lastPeaks=peaks;setWave(peaks);autoRhythm();const restored=window.LowlineEditor?await LowlineEditor.restore(songKey):false;buildTab();seek(0);updateAnalysis(100,'Analysis complete');try{localStorage.removeItem('lowlineRun')}catch(e){}
     sl.textContent=restored?`Your saved edits for this song were restored (${notes.length} notes). Edit → "Reset to detected" goes back to the analysis.`:`Found ${notes.length} notes. Click any number or mark to hear just that note.`;
-    document.getElementById('playerSection').classList.add('visible');progress.hidden=true;
+    document.getElementById('playerSection').classList.add('visible');progress.hidden=true;requestAnimationFrame(()=>setWave(lastPeaks));   // redraw once the player is visible (it has no width while hidden)
     document.getElementById('playerSection').scrollIntoView({behavior:'smooth',block:'nearest'});
   }catch(e){try{localStorage.removeItem('lowlineRun')}catch(_){}sl.textContent=e.message||'This file could not be analyzed. Try another MP3 or WAV.';progress.hidden=true;toast(e.message||'Could not analyze this file.')}
   finally{document.getElementById('dropzone').disabled=false;document.getElementById('demoBtn').disabled=false}
@@ -136,8 +137,7 @@ waveform.addEventListener('pointerdown',e=>{if(!duration)return;dragging=true;re
 waveform.addEventListener('pointermove',e=>{if(dragging)setPosition(at(e))});
 const end=e=>{if(!dragging)return;dragging=false;try{waveform.releasePointerCapture(e.pointerId)}catch{}if(resume){resume=false;play()}};
 waveform.addEventListener('pointerup',end);waveform.addEventListener('pointercancel',end)})();waveform.onkeydown=e=>{if(e.key==='ArrowRight')seek(nowTime()+1);if(e.key==='ArrowLeft')seek(nowTime()-1);if(e.key==='Home')seek(0);if(e.key==='End')seek(duration)};
-document.getElementById('speedSelect').onchange=e=>{const was=playing;if(was)pause();speed=+e.target.value;if(audio.src)audio.playbackRate=speed;if(was)play()};
-document.getElementById('loopBtn').onclick=e=>{loopOn=!loopOn;e.currentTarget.setAttribute('aria-pressed',loopOn)};tuningSelect.onchange=buildTab;document.getElementById('octaveSelect').onchange=buildTab;document.getElementById('noteNamesBtn').onclick=e=>{showNames=!showNames;e.currentTarget.setAttribute('aria-pressed',showNames);buildTab()};document.getElementById('barsBtn').onclick=e=>{showBars=!showBars;e.currentTarget.setAttribute('aria-pressed',showBars);buildTab()};document.getElementById('rhythmBtn').onclick=e=>{showRhythm=!showRhythm;e.currentTarget.setAttribute('aria-pressed',showRhythm);buildTab()};
+tuningSelect.onchange=buildTab;document.getElementById('octaveSelect').onchange=buildTab;document.getElementById('noteNamesBtn').onclick=e=>{showNames=!showNames;e.currentTarget.setAttribute('aria-pressed',showNames);buildTab()};document.getElementById('barsBtn').onclick=e=>{showBars=!showBars;e.currentTarget.setAttribute('aria-pressed',showBars);buildTab()};document.getElementById('rhythmBtn').onclick=e=>{showRhythm=!showRhythm;e.currentTarget.setAttribute('aria-pressed',showRhythm);buildTab()};
 document.getElementById('fingersBtn').onclick=e=>{showFingers=!showFingers;e.currentTarget.setAttribute('aria-pressed',showFingers);buildTab()};
 document.getElementById('bpmInput').onchange=e=>{const v=parseFloat(e.target.value);if(v>=30&&v<=300){const keepBar1=rhythmState.origin;rhythmState.bpm=v;rhythmState.origin=keepBar1;rhythmState.auto=false;syncRhythmControls();buildTab()}else syncRhythmControls()};
 document.getElementById('sigSelect').onchange=e=>{rhythmState.sig=e.target.value;buildTab()};
