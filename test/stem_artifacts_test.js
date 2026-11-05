@@ -14,6 +14,9 @@
 //  7. fret-touch blip: the fretting finger lands on a ringing open E to mute it and briefly sounds F (no pluck, ~50-100 ms,
 //     synthetic 100 ms blip fails on the old code; shorter synthetic ones were already dropped as too few frames;
 //     right before the next E pluck). It was read as an F1 note (Another One Bites the Dust, 17 times).
+//  8. one-semitone legato step measured 0.9-0.95 semitones edge-to-edge: notes merged (Ool Tani Keda 0:39)
+//  9. same-note re-pluck visible only as a 2-5 frame pitch dropout + small rise: merged (Ool Tani Keda 0:51, 0:57).
+//     Tested on the real frames (no synthetic reproduction: a synthetic gap deep enough also trips the onset test)
 //  4. F#1 -> B1 hammer-on where the pitch sags just before the jump and the tracker drops out for a few
 //     frames during it: the F#1 vanished into the B1
 const A = require('../analysis.js');
@@ -103,6 +106,24 @@ const fr = a => a.map((m, i) => ({ t: i * 0.0107, m: m === null ? NaN : m, c: m 
   const p = A.buildPieces(fr([29.72,29.71,29.67,29.67,29.67,29.67,29.68,29.67,29.67,29.66,29.66,29.66,29.67,29.67,29.67,29.65,29.64,29.64,29.64,29.64,29.63,29.64,29.62,29.63,29.42,29.3,null,null,null,34.57,34.8,34.79,34.85,34.86,34.95,35.04,35.08,35.12,35.12,35.11,35.05,35.02,35,35,35.02,35.02,35.02,35.01,34.99,34.95,34.94,34.96,35,34.82,34.71,34.57,34.9,null,46.96,46.91,46.85,46.86,46.87,46.91,47.02]));
   const tail = p.find(q => Math.round(q.mf) === 47);
   check(tail && tail.octaveTail === true, 'octave-up tail is flagged', tail ? 'not flagged' : 'no B2 piece');
+}
+{ // G#1 -> G1 one-semitone step with no pluck (Ool Tani Keda 0:39, frames from the separated bass). The step measured
+  // 0.9-0.95 semitones edge-to-edge, under the 1.0 glide/jump minimum, so both notes became one G1.
+  const p = A.buildPieces(fr([32.0,32.0,32.0,32.0,32.0,32.0,32.0,32.0,32.0,32.0,32.0,32.0,32.0,32.1,31.9,31.4,31.1,30.9,31.0,31.0,31.1,31.1,31.1,31.0,31.0,30.9,31.0,31.0,31.0,31.0,31.0,31.2]));
+  check(p.length === 2 && Math.round(p[0].mf) === 32 && Math.round(p[1].mf) === 31, 'one-semitone step (legato) splits the note', p.map(q => q.mf.toFixed(1)).join(' '));
+  // guard: vibrato (+-0.45 around one pitch) stays one note
+  const v = A.buildPieces(fr(Array.from({ length: 40 }, (_, i) => 32 + 0.45 * Math.sin(i * 0.9))));
+  check(v.length === 1, 'vibrato stays one note', v.map(q => q.mf.toFixed(1)).join(' '));
+}
+{ // 9: same-note re-pluck seen only as a pitch dropout (Ool Tani Keda 0:51, frames from the separated bass). A synthetic
+  // version could not be made: any synthetic gap deep enough to stop the tracker already trips the normal onset test.
+  const f = [27.1,27,27,26.9,26.9,27,27,27,27,27,26.9,27,27,27,27,27,27,27,27,27,27,27,27,26.9,27,27,27.1,27.1,27,27.1,27.2,27.4,null,null,null,27,27.1,27.2,27.1,27,27,27,27,26.9,27,26.9,27,27.1,27.3,27.4,27.8];
+  const has = typeof A.dropoutReplucks === 'function';
+  const hit = has ? A.dropoutReplucks(fr(f), () => 4.6, 0) : [];
+  check(hit.length === 1 && Math.abs(hit[0] - 35 * 0.0107) < 0.02, 'pitch dropout + same pitch + 4.6 dB rise = re-pluck', has ? hit.map(t => t.toFixed(3)).join(' ') : 'no dropoutReplucks()');
+  check(has && A.dropoutReplucks(fr(f), () => 1.0, 0).length === 0, 'same dropout with no energy rise is not a re-pluck', 'fired');
+  const g = f.map((m, i) => (m !== null && i > 34 ? m + 2 : m));  // different pitch after the gap: that is a note change, not this rule
+  check(has && A.dropoutReplucks(fr(g), () => 4.6, 0).length === 0, 'dropout into a different pitch is left to the jump logic', 'fired');
 }
 (async () => {
   for (const c of cases) {

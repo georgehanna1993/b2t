@@ -35,7 +35,10 @@
     legatoMinSemis: 0.7,
     slowMoveSemis: 0.7,  // ...or this much across 8 frames (catches slow glides)
     moveSemis: 0.45,     // pitch moved this much across 4 frames -> candidate glide/jump
-    glideMinSemis: 1.0,  // net change needed to call it a glide or jump (vibrato stays below this)
+    glideMinSemis: 1.0,
+    stepMinSemis: 0.8,   // a pitch step between two steady stretches (each within stepFlatSemis) this big is a new note
+    stepFlatSemis: 0.35,
+    dropRepluckRiseDb: 2.5, // a mid-note pitch dropout followed by the same pitch is a re-pluck if the energy rises this much  // net change needed to call it a glide or jump (vibrato stays below this)
     jumpMaxFrames: 5,    // a pitch change spread over <= this many frames (~58 ms) is a jump, longer is a glide
     hammerMaxSemis: 5,   // bigger leaps without a new attack are re-plucks, not hammer-ons/pull-offs
     kickMaxMidi: 35,     // kick-drum bleed lives down here (< ~62 Hz) and snaps back up
@@ -162,6 +165,25 @@
   // ---------- pitch curve -> notes ----------
   // frames: [{t, m (midi float or NaN), c (0..1)}]
   // 1. find places where the pitch MOVES (4-frame displacement)
+  // Same-note re-pluck seen only as a pitch dropout: the tracker loses the note for 2-5 frames while the string is struck
+  // again, the SAME pitch continues after it, and the energy rises a little (separated stems smooth the attack: Ool Tani
+  // Keda 0:51 / 0:57, D#1 plucked twice; rises measured 3.6-11 dB; never fired on PTFM, the Nov stem or the Arabic stem).
+  // Returns the re-pluck times. rise(t) = biggest short-term energy rise near t (dB).
+  function dropoutReplucks(fr, rise, lead) {
+    const out = [];
+    for (let q = 0; q < fr.length; q++) {
+      if (!isNaN(fr[q].m)) continue;
+      let r = q; while (r < fr.length && isNaN(fr[r].m)) r++;
+      const gap = r - q, pre = fr.slice(Math.max(0, q - 6), q).map(z => z.m).filter(z => !isNaN(z)), post = fr.slice(r, r + 6).map(z => z.m).filter(z => !isNaN(z));
+      if (gap >= 2 && gap <= 5 && pre.length >= 5 && post.length >= 5 && Math.abs(median(pre) - median(post)) < 0.4) {
+        const tG = fr[r].t - (lead || 0);
+        if (rise(tG) >= CFG.dropRepluckRiseDb) out.push(tG);
+      }
+      q = r;
+    }
+    return out;
+  }
+
   // 2. a smooth move = glide (one start->end event, never extra notes), an abrupt one = jump (hammer/pull)
   // 3. the steady stretches between events are the notes' pitches
   function buildPieces(frames) {
@@ -198,8 +220,17 @@
       while (b > j && isNaN(mi[b])) b--;          // glide runs into the end of the note: use the last voiced frame
       i = j + 1;
       if (isNaN(mi[a]) || isNaN(mi[b])) continue;
-      const net = mi[b] - mi[a];
-      if (Math.abs(net) < CFG.glideMinSemis) continue;           // vibrato / wobble
+      let net = mi[b] - mi[a];
+      if (Math.abs(net) < CFG.glideMinSemis) {
+        // Edge frames are still settling, so a clean one-semitone step can measure 0.9 edge-to-edge. Compare the steady
+        // stretches on both sides instead: a real step lands on a new pitch, vibrato comes back to the same one.
+        const side = (from, dir) => { const v = []; for (let q = from; q >= 0 && q < n && v.length < 6; q += dir) if (!isNaN(ms[q])) v.push(ms[q]); return v; };
+        const pre = side(a, -1), post = side(b, 1);
+        if (pre.length < 4 || post.length < 4) continue;
+        const pm = median(pre), qm = median(post), flat = arr => Math.max(...arr) - Math.min(...arr) <= CFG.stepFlatSemis;
+        if (!(Math.abs(qm - pm) >= CFG.stepMinSemis && flat(pre) && flat(post) && b - a <= CFG.jumpMaxFrames + 6)) continue; // vibrato / wobble
+        net = qm - pm;
+      }
       // Steps are measured between REAL voiced frames (ms), not the bridged values: a jump across a 3-frame gap
       // otherwise looks like four 1.3-semitone steps, i.e. neither a jump nor (with a small sag before it) a glide,
       // and the note before it vanished (F#1 -> B1 hammer-on merged into one B1).
@@ -482,6 +513,7 @@
       });
     }
 
+    const dbg = opts.debug ? { onsetT: onsets.map(o => (o.b * HOP + 64) / srD), frames: [] } : null;
     for (let i = 0; i < onsets.length; i++) {
       const on = onsets[i], bS = on.b, nextB = i + 1 < onsets.length ? onsets[i + 1].b : nb;
       let segPeak = -1e9;
@@ -498,6 +530,7 @@
         fr = pitchFrames(bS + 2, Math.max(bS + 2, endB - 1), Math.min(x.length, nextB * HOP + 192), tailRms);
         voiced = fr.filter(q => !isNaN(q.m)).length;
       }
+      if (dbg) dbg.frames.push(...fr.map(q => [+q.t.toFixed(3), +q.m.toFixed(2)]));
       if (voiced < 1) {
         const ms = L * HOP / srD * 1000;
         if ((ms <= CFG.muteMaxMs && on.od >= 8 && segPeak >= peakDb - CFG.muteMinRelDb)) notes.push({ time: tOn, mf: NaN, midi: null, dur: Math.max(0.05, Math.min(L * HOP / srD, CFG.muteMaxMs / 1000)), confidence: 0.45, technique: 'muted', mute: true, feat });
@@ -525,6 +558,14 @@
         if (p.slideIn) note.slideIn = p.slideIn;
         if (p.slideToF === null && detectVibrato(fr.slice(p.startIdx, p.endIdx + 1).map(q => q.m), srD / HOP)) note.vibrato = true;
         notes.push(note);
+      });
+      // same-note re-pluck seen only as a pitch dropout (see dropoutReplucks)
+      dropoutReplucks(fr, energyRise, W / 2 / srD * 0.5).forEach(tG => {
+        const host = notes.slice(before).find(nn => !nn.mute && tG > nn.time + 0.1 && tG < nn.time + nn.dur - 0.06 && nn.slideToF == null);
+        if (!host) return;
+        const end = host.time + host.dur; host.dur = tG - host.time;
+        notes.push({ level: host.level, time: tG, mf: host.mf, midi: null, dur: end - tG, confidence: host.confidence * 0.9, technique: null, feat: null, inner: true, repluck: true });
+        notes.sort((u, v) => u.time - v.time);
       });
       // a loud, short hit whose pitch never settled (1-2 frames) gave no note at all: it is a dead note, not nothing
       const ms_ = L * HOP / srD * 1000;
@@ -595,9 +636,9 @@
     kept.forEach(n => { if (n.mute) n.midi = prev; else prev = n.midi; });
 
     progress(100);
-    return { notes: kept, debug: { peakDb, floorDb, onsets: onsets.length, tuneOffset: tune, srD } };
+    return { notes: kept, debug: { peakDb, floorDb, onsets: onsets.length, tuneOffset: tune, srD, trace: dbg } };
   }
 
-  const api = { CFG, analyze, buildPieces, prepare, median, detectVibrato };
+  const api = { CFG, analyze, buildPieces, dropoutReplucks, prepare, median, detectVibrato };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.LowlineAnalysis = api;
 })(typeof window !== 'undefined' ? window : globalThis);

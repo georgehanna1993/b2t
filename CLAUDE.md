@@ -54,6 +54,12 @@ A slide too long for any one string (e.g. E3 gliding 2 octaves to E1) is drawn a
 instead of a negative end fret; fingering_test.js #11.
 Options: 5-string tuning (B E A D G; tabview draws `openMidis.length` strings) and an Octave select (-1/0/+1) that
 moves every pitched note (and slide targets) before fingering; `octaveApplied` in app.js tracks it, reset on each new file.
+One-semitone steps (Ool Tani Keda, Nov 2026): a G#1->G1 step measured 0.9-0.95 semitones edge-to-edge and was ignored as
+vibrato (< glideMinSemis 1.0), merging the two notes. Now the steady stretches on both sides are compared (stepMinSemis 0.8,
+each side within stepFlatSemis 0.35); vibrato returns to the same pitch so it stays one note.
+Same-note re-pluck seen only as a 2-5 frame pitch DROPOUT with the same pitch after it and a >= 2.5 dB rise (`dropoutReplucks`):
+separated stems smooth the attack (Ool Tani Keda 0:51/0:57, D#1 twice). Fired 0 times on PTFM, the Nov stem and the Arabic stem.
+Tests use real frames (no synthetic reproduction). analyze(..., {debug:true}) returns debug.trace (onset times + pitch frames).
 Same-note re-plucks while the string rings (legato eighths): a ghost candidate with a >= 3 dB dip just before it, OR a >= 16 dB
 click above 1.5 kHz, AND the level still within 4 dB 150 ms later, splits the note (a ghost instead dies away).
 
@@ -83,8 +89,9 @@ needed) and prints per-section correct / wrong(octave) / missed / extra and prec
 owner's tabs and stay in samples/ (copyrighted). Decode MP3s like the browser does (Playwright OfflineAudioContext) at 48 and 44.1 kHz.
 | song | file | found | precision |
 |---|---|---|---|
-| Come Together (Beatles) | samples/ct48.wav + ct_ref.js | 42.9% -> 54.9% (44.1k: 56.6%) | 67.5% -> 72.8% |
-| Another One Bites the Dust (Queen) | samples/ab48.wav + ab_ref.js | 89.8% (44.1k: 89.3%) | 87.9% -> 91.5% (44.1k: 92.4%) |
+| Come Together (Beatles) | samples/ct48.wav + ct_ref.js | 42.9% -> 54.9% -> 59.7% (44.1k: 60.7%) | 67.5% -> 72.8% -> 73.9% |
+| Come Together, separated in-app (Demucs) | samples/ct_sepbass.wav + ct_ref.js | 52.6% -> 62.4% | 77.6% -> 79.9% |
+| Another One Bites the Dust (Queen) | samples/ab48.wav + ab_ref.js | 89.8% -> 90.1% (44.1k: 89.3%) | 87.9% -> 91.5% (44.1k: 92.4%) |
 AOBTD tab is "one pass of the main parts": riff shapes from the tab, repeat counts from the stem's section layout. Remaining
 losses there: chorus bars (C C C C# D) partly misread, a few doubled/merged 16ths.
 Biggest remaining losses: legato repeated eighths in the outro/solos (re-plucks invisible in the bass band), wrong pitches in the
