@@ -93,6 +93,10 @@ stems, bar numbers, note names, fingers, legend, page numbers, A4/Letter, portra
 Ool Tani Keda: 21 raster pages -> 3 vector pages, ~40 ms, 91 KB (7 pages / 203 KB with notation).
 Separation speed: overlap 0.25 -> 0.1 (CT full: 208 s -> 146 s CLI, notes 62.4% -> 63.1%, precision 79.9% -> 80.9%).
 Separated songs are saved in IndexedDB 'lowline-bass' (Int16, key name|size|lastModified, last 8): reopening is instant (0.6 s).
+Repeats: after an edit, the note's neighbourhood (3 notes each side: pitches + gaps within 30%) is searched in the whole song;
+'Apply this change to all N' copies the change (fields diff + time shift, or delete, or add at the same offset) in one undo step.
+Ool Tani Keda: one edit in the riff -> 29 matches. 'Next unsure ▶' (U / Shift+U) walks notes with confidence < 0.75 not yet edited.
+Tap tempo (practice bar): median of >= 4 taps; if all taps happen while playing, the first tap is beat 1 (sets origin too).
 Practice bar (`practice.js`, Nov 2026): Loop bars (mouse drag across the tab, or press the button and tap first + last bar;
 taps on notes count while choosing), metronome Click (accent on beat 1) and Count-in (one bar), Speed slider 40-100 %, Hear tab
 (synth bass of the current notes: off / with the song / tab only = recording muted via `recGain` + audio.muted). Clicks and synth

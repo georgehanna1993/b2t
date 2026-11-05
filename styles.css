@@ -202,3 +202,7 @@ footer{height:64px;display:flex;align-items:center;justify-content:space-between
 .play-round.counting{animation:pulse .5s ease-in-out infinite alternate}
 @keyframes pulse{to{transform:scale(1.12)}}
 @media(max-width:820px){.practice-bar{margin:4px 18px 0}.pb-speed input{width:100px}}
+.ed-repeat{flex:1 1 100%;display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:8px 12px;background:#e8553b22;border:2px solid var(--tomato);border-radius:12px;font-weight:600}
+.ed-repeat button:first-of-type{background:var(--tomato)!important;color:var(--cream)}
+.ed-actions small{font-family:var(--mono);background:var(--tomato);color:var(--cream);border-radius:99px;padding:0 6px;margin-left:4px}
+.edit-bar button:disabled{opacity:.45;cursor:default}

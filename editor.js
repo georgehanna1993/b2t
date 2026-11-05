@@ -52,9 +52,65 @@
     } catch (e) { /* no audio: fine */ }
   }
   function snapshot() { undo.push({ notes: notes.map(n => Object.assign({}, n, { lock: n.lock ? Object.assign({}, n.lock) : undefined })), sel: notes.indexOf(sel) }); if (undo.length > 200) undo.shift(); }
+  // ---- "fix once, apply to all repeats": the edited note's neighbourhood (3 notes each side, pitches + gaps) is looked
+  // for elsewhere in the song; the same change can then be applied to every match in one step (one undo) ----
+  let pendingKind = 'mod', lastEdit = null;
+  const SIGK = 3, pkey = n => (n.mute ? 'x' : n.midi);
+  const DIFF = ['midi', 'mf', 'lock', 'dur', 'technique', 'slideTo', 'slideIn', 'slideOut', 'slap', 'vibrato', 'mute'];
+  function sigAt(arr, i) {
+    const out = [];
+    for (let o = -SIGK; o <= SIGK; o++) { const q = arr[i + o]; if (!q) continue; const nx = arr[i + o + 1]; out.push({ o, p: pkey(q), g: o < SIGK && nx ? nx.time - q.time : null }); }
+    return out;
+  }
+  function matchAt(sig, i) {
+    for (const { o, p, g } of sig) {
+      const q = notes[i + o]; if (!q || pkey(q) !== p) return false;
+      const nx = notes[i + o + 1]; if (g != null && nx && Math.abs(nx.time - q.time - g) > Math.max(0.06, 0.3 * g)) return false;
+    }
+    return true;
+  }
+  const findAll = (sig, skip) => { const r = []; for (let i = 0; i < notes.length; i++) if (!skip(notes[i]) && matchAt(sig, i)) r.push(notes[i]); return r; };
+  function recordEdit() {
+    const u = undo[undo.length - 1], kind = pendingKind; pendingKind = 'mod'; lastEdit = null;
+    if (!u || kind === 'none') return;
+    const pre = u.notes;
+    if (kind === 'mod' && sel && u.sel >= 0) {
+      const p = pre[u.sel], diff = {};
+      DIFF.forEach(k => { if (JSON.stringify(p[k]) !== JSON.stringify(sel[k])) diff[k] = sel[k] === undefined ? undefined : JSON.parse(JSON.stringify(sel[k])); });
+      const dt = sel.time - p.time; if (!Object.keys(diff).length && Math.abs(dt) < 1e-6) return;
+      const targets = findAll(sigAt(pre, u.sel), q => q === sel);
+      if (targets.length) lastEdit = { kind, diff, dt, targets };
+    } else if (kind === 'del' && u.sel >= 0) {
+      const targets = findAll(sigAt(pre, u.sel), () => false);
+      if (targets.length) lastEdit = { kind, targets };
+    } else if (kind === 'add' && sel) {
+      let a = -1; pre.forEach((q, i) => { if (q.time <= sel.time + 1e-6) a = i; });
+      if (a < 0) return;
+      const at = pre[a].time, targets = findAll(sigAt(pre, a), q => Math.abs(q.time - at) < 1e-6);
+      const tpl = {}; KEEP.forEach(k => { if (sel[k] !== undefined) tpl[k] = JSON.parse(JSON.stringify(sel[k])); });
+      if (targets.length) lastEdit = { kind, targets, offset: sel.time - at, tpl };
+    }
+  }
+  function applyAll() {
+    const e = lastEdit; if (!e) return; snapshot(); pendingKind = 'none';
+    if (e.kind === 'mod') e.targets.forEach(t => { Object.keys(e.diff).forEach(k => { if (e.diff[k] === undefined) delete t[k]; else t[k] = JSON.parse(JSON.stringify(e.diff[k])); }); t.time = Math.max(0, t.time + e.dt); t.edited = true; t.confidence = 1; });
+    else if (e.kind === 'del') e.targets.forEach(t => { const i = notes.indexOf(t); if (i >= 0) notes.splice(i, 1); });
+    else if (e.kind === 'add') e.targets.forEach(t => notes.push(Object.assign(JSON.parse(JSON.stringify(e.tpl)), { time: t.time + e.offset })));
+    notes.sort((a, b) => a.time - b.time);
+    const n = e.targets.length; lastEdit = null; changed(false); toast(`Applied to ${n} more place${n > 1 ? 's' : ''}.`);
+  }
+  // ---- unsure notes: the ones the analysis doubts ('?') and you have not touched yet ----
+  const unsure = () => notes.filter(n => (n.confidence == null || n.confidence < 0.75) && !n.edited);
+  function nextUnsure(dir) {
+    const list = unsure(); if (!list.length) return toast('No unsure notes left. ✓');
+    const ref = sel ? sel.time : curPos;
+    let n = dir < 0 ? list.filter(q => q.time < ref - 1e-3).pop() : list.find(q => q.time > ref + 1e-3);
+    if (!n) n = dir < 0 ? list[list.length - 1] : list[0];               // wrap around
+    select(n); setPosition(n.time); const i = notes.indexOf(n); origClip(n.time, n.time + (n.dur || 0.2), i);
+  }
   function changed(play) {
     if (sel) { sel.confidence = 1; sel.edited = true; }
-    buildTab(); saveSoon();
+    buildTab(); saveSoon(); recordEdit();
     $('noteCount').textContent = `· ${notes.length} NOTES`;
     if (play && sel && !sel.mute) tone(sel.midi, sel.slideTo);
     panel();
@@ -85,11 +141,13 @@
     const box = $('editBar'); if (!box) return;
     if (!editMode) { box.hidden = true; return; }
     box.hidden = false;
-    const tools = `<span class="ed-actions"><button data-op="add">+ Add note</button><button data-op="undo">↶ Undo</button><button data-op="reset" id="resetEdits"${hasSaved() ? '' : ' hidden'} title="Throw away your edits for this song">Reset to detected</button></span>`;
-    if (!sel || notes.indexOf(sel) < 0) { box.innerHTML = `<p class="ed-hint">Click a note to edit it, or add one at the playhead (click the waveform to place the playhead).</p>${tools}`; wire(); return; }
+    const nU = unsure().length;
+    const rep = lastEdit ? `<div class="ed-repeat">↻ The same spot repeats <b>${lastEdit.targets.length}</b> more time${lastEdit.targets.length > 1 ? 's' : ''} in this song. <button data-op="applyAll">Apply this change to all ${lastEdit.targets.length}</button><button data-op="dismissRepeat">No, only here</button></div>` : '';
+    const tools = `<span class="ed-actions"><button data-op="prevUnsure" title="Previous unsure note (Shift+U)"${nU ? '' : ' disabled'}>◀ ?</button><button data-op="nextUnsure" title="Next unsure note (U)"${nU ? '' : ' disabled'}>Next unsure ▶ <small>${nU}</small></button><button data-op="add">+ Add note</button><button data-op="undo">↶ Undo</button><button data-op="reset" id="resetEdits"${hasSaved() ? '' : ' hidden'} title="Throw away your edits for this song">Reset to detected</button></span>`;
+    if (!sel || notes.indexOf(sel) < 0) { box.innerHTML = `${rep}<p class="ed-hint">Click a note to edit it, jump to the notes the app is unsure about, or add one at the playhead.</p>${tools}`; wire(); return; }
     const n = sel, len = Math.max(1, Math.round(n.dur / p16())), tech = techOf(n), pos = n.mute ? [] : positions(n.midi);
     const curPosKey = n.string != null ? `${n.string}:${n.fret}` : '';
-    box.innerHTML = `
+    box.innerHTML = `${rep}
       <div class="ed-field"><label>Note</label><span class="row"><button data-op="pitch" data-v="-1" title="Down a semitone (↓)">−</button>
         <select data-op="note" ${n.mute ? 'disabled' : ''}>${noteOptions(n.midi)}</select><button data-op="pitch" data-v="1" title="Up a semitone (↑)">+</button></span></div>
       <div class="ed-field"><label>String &amp; fret</label><select data-op="pos" ${n.mute ? 'disabled' : ''}>${pos.map(p => opt(`${p.s}:${p.f}`, `${stringNames()[p.s]} string · fret ${p.f}${p.up ? ' (8va)' : ''}`, curPosKey)).join('')}</select></div>
@@ -133,16 +191,20 @@
     },
     slideTo(m) { if (!sel) return; snapshot(); sel.slideTo = +m; changed(true); },
     hear() { if (sel && !sel.mute) tone(sel.midi, sel.slideTo); },
-    del() { if (!sel) return; snapshot(); const i = notes.indexOf(sel); notes.splice(i, 1); sel = notes[Math.min(i, notes.length - 1)] || null; changed(false); },
+    del() { if (!sel) return; snapshot(); pendingKind = 'del'; const i = notes.indexOf(sel); notes.splice(i, 1); sel = notes[Math.min(i, notes.length - 1)] || null; changed(false); },
     add() {
-      snapshot();
+      snapshot(); pendingKind = 'add';
       const t = playing ? nowTime() : curPos, prev = notes.filter(n => !n.mute && n.time <= t).pop() || notes.find(n => !n.mute);
       const m = sel && !sel.mute ? sel.midi : prev ? prev.midi : 40;
       const n = { time: t, midi: m, mf: m, dur: 2 * p16() * 0.98, confidence: 1, edited: true, added: true, technique: null };
       notes.push(n); notes.sort((a, b) => a.time - b.time); sel = n; changed(true);
     },
-    undo() { const u = undo.pop(); if (!u) return toast('Nothing to undo.'); notes = u.notes; sel = notes[u.sel] || null; changed(false); },
-    reset() { resetEdits(); }
+    undo() { const u = undo.pop(); if (!u) return toast('Nothing to undo.'); pendingKind = 'none'; notes = u.notes; sel = notes[u.sel] || null; changed(false); },
+    reset() { resetEdits(); },
+    applyAll() { applyAll(); },
+    dismissRepeat() { lastEdit = null; panel(); },
+    nextUnsure() { nextUnsure(1); },
+    prevUnsure() { nextUnsure(-1); }
   };
   // ---- edits are saved in this browser per song file (IndexedDB 'lowline-edits'), restored when the same file is opened ----
   const KEEP = ['time', 'dur', 'midi', 'mf', 'mute', 'technique', 'slideTo', 'slideToF', 'slideIn', 'slideOut', 'slap', 'vibrato', 'confidence', 'lock', 'edited', 'added', 'level'];
@@ -193,6 +255,7 @@
     else if (k === 'ArrowRight') ops.time(1);
     else if (k === 'Delete' || k === 'Backspace') ops.del();
     else if (k.toLowerCase() === 'n') ops.add();
+    else if (k.toLowerCase() === 'u') nextUnsure(e.shiftKey ? -1 : 1);
     else if (k === 'Escape') setMode(false);
     else done = false;
     if (done) e.preventDefault();
@@ -240,5 +303,5 @@
     const o = readOpts(); if (!pdfDoc) await preview();
     pdfDoc.save(fileName(o)); $('pdfStatus').textContent = 'Saved: ' + fileName(o);
   };
-  window.LowlineEditor = { ops, select, setMode, makePdf, preview, restore, saveNow, positions, get sel() { return sel; }, get editMode() { return editMode; } };
+  window.LowlineEditor = { ops, select, setMode, makePdf, preview, restore, saveNow, saveSoon, get lastEdit() { return lastEdit; }, positions, get sel() { return sel; }, get editMode() { return editMode; } };
 })();

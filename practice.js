@@ -180,6 +180,28 @@
     speed = +sr.value / 100; if (audio.src) { audio.playbackRate = speed; audio.preservesPitch = true; }
     if (was) play();
   };
+  // ---------- tap tempo: tap on every beat; while the song plays, start on a '1' and bar 1 lines up too ----------
+  let taps = [];
+  $('tapBtn').onclick = () => {
+    const w = performance.now() / 1000;
+    if (taps.length && w - taps[taps.length - 1].w > 2.5) taps = [];
+    taps.push({ w, s: playing ? nowTime() : null });
+    if (taps.length < 4) { $('tapBtn').textContent = `Tap ${taps.length}/4…`; return; }
+    const iv = []; for (let i = 1; i < taps.length; i++) iv.push(taps[i].w - taps[i - 1].w);
+    iv.sort((a, b) => a - b); const beatWall = iv[Math.floor(iv.length / 2)], beatSong = beatWall * speed;
+    const rh = window.lastRh, beatU = rh ? rh.beatU : 4, barU = rh ? rh.barU : 16;
+    const bpm = Math.round((beatU * 15 / beatSong) * 2) / 2;
+    if (!(bpm >= 30 && bpm <= 300)) { $('tapBtn').textContent = 'Tap again'; taps = []; return; }
+    rhythmState.bpm = bpm; rhythmState.auto = false; rhythmState.shiftBeats = 0;
+    const songTaps = taps.filter(t => t.s != null);
+    if (songTaps.length === taps.length) {                       // all taps while playing: they are beats, the first one a '1'
+      const bs = beatU * 15 / bpm, bar = barU * 15 / bpm;
+      const s0 = songTaps.reduce((a, t, i) => a + (t.s - i * bs), 0) / songTaps.length;
+      rhythmState.origin = s0 - Math.floor(s0 / bar) * bar;
+    }
+    syncRhythmControls(); buildTab(); if (window.LowlineEditor && window.songKey) LowlineEditor.saveSoon();
+    $('tapBtn').textContent = `♩ = ${bpm} · tap`;
+  };
   applyMix();
   window.LowlinePractice = { setLoop, clearLoop, get loopBars() { return loopBars; }, get state() { return { clickOn, countIn, tabMode, scheduled: live.length }; } };
 })();
