@@ -163,77 +163,47 @@
     if (done) e.preventDefault();
   });
 
-  // ---- PDF download: choose what goes on it, render the tab with those options, cut it into rows, save a .pdf ----
+  // ---- PDF: options window with a live preview, vector drawing (pdfexport.js), direct download ----
   function loadScript(src) { return new Promise((res, rej) => { if (document.querySelector(`script[src="${src}"]`)) return res(); const s = document.createElement('script'); s.src = src; s.onload = res; s.onerror = () => rej(new Error('Could not load ' + src)); document.head.appendChild(s); }); }
-  const songTitle = () => $('trackName').textContent.replace(/\s+—\s+(your bassline|Lowline session)$/, '').replace(/\.(mp3|wav|m4a|ogg|flac)$/i, '').trim();
-  function openPdfDialog() {
-    if (!notes.length || !tabInfo) return toast('Load a song first.');
-    const d = $('pdfDialog');
-    d.querySelector('[name=title]').value = d.querySelector('[name=title]').value || songTitle();
-    d.querySelector('[name=notation]').checked = viewMode !== 'tab';
-    d.hidden = false; d.querySelector('[name=title]').focus();
+  const songTitle = () => $('trackName').textContent.replace(/\s+—\s+(your bassline|Lowline session)$/, '').replace(/\.(mp3|wav|m4a|ogg|flac)$/i, '').replace(/[_]+/g, ' ').replace(/^\d+\.\s*/, '').trim();
+  let pdfUrl = null, pdfDoc = null, pdfTimer = 0;
+  const fileName = o => (o.title || 'Bass').replace(/[\\/:*?"<>|]+/g, ' ').trim() + ' - Bass Tab.pdf';
+  function readOpts() {
+    const f = new FormData($('pdfForm')), on = k => f.get(k) === 'on';
+    return { title: (f.get('title') || '').trim(), artist: (f.get('artist') || '').trim(), comment: (f.get('comment') || '').trim(), info: on('info'),
+      notation: on('notation'), rhythm: on('rhythm'), names: on('names'), fingers: on('fingers'), bars: on('bars'), legend: on('legend'), credit: on('credit'),
+      page: f.get('page'), orient: f.get('orient') };
   }
   async function makePdf(o) {
-    const status = $('pdfStatus'); status.textContent = 'Preparing…';
-    await loadScript('vendor/jspdf.umd.min.js'); await loadScript('vendor/html2canvas.min.js');
-    const { jsPDF } = window.jspdf;
-    const land = o.orient === 'landscape', doc = new jsPDF({ unit: 'pt', format: o.page, orientation: o.orient });
-    const PWpt = doc.internal.pageSize.getWidth(), PHpt = doc.internal.pageSize.getHeight(), M = 36, CW = PWpt - 2 * M;
-    const ROW = land ? 980 : 680, GUT = 38, SCALE = CW / (ROW + GUT);          // CSS px -> pt
-    // an off-screen stage with the tab drawn with the chosen options
-    const stage = document.createElement('div'); stage.className = 'pdf-stage'; document.body.appendChild(stage);
+    await loadScript('vendor/jspdf.umd.min.js'); await loadScript('pdfexport.js');
+    const beatSec = 60 / rhythmState.bpm;
+    const rh = LowlineRhythm.build(notes, { bpm: rhythmState.bpm, origin: rhythmState.origin + rhythmState.shiftBeats * beatSec, sig: rhythmState.sig });
+    return LowlinePdf.build(o, { notes, rh, names: stringNames(), openMidis: strings(), bpm: rhythmState.bpm, sig: rhythmState.sig });
+  }
+  async function preview() {
+    const st = $('pdfStatus'); st.textContent = 'Updating preview…';
     try {
-      const grid = document.createElement('div'); grid.className = 'tab-grid'; stage.appendChild(grid);
-      const beatSec = 60 / rhythmState.bpm;
-      const rh = LowlineRhythm.build(notes, { bpm: rhythmState.bpm, origin: rhythmState.origin + rhythmState.shiftBeats * beatSec, sig: rhythmState.sig });
-      const info = LowlineTabView.render({ grid, notes, rhythm: rh, names: stringNames(), openMidis: strings(),
-        opts: { rhythm: o.rhythm, bars: o.bars, names: o.names, fingers: o.fingers, notation: o.notation }, midiName, fmt, onSeek() {}, onPlay() {} });
-      if (o.names) grid.classList.add('show-names');
-      const H = grid.offsetHeight || info.height;
-      let y = M;
-      const shot = async el => html2canvas(el, { scale: 2, backgroundColor: '#ffffff', logging: false });
-      const place = async (el, gap) => {
-        const c = await shot(el), w = Math.min(CW, c.width / 2 * SCALE), h = c.height / 2 * SCALE * (w / (c.width / 2 * SCALE));
-        if (y + h > PHpt - M) { doc.addPage(); y = M; }
-        doc.addImage(c, 'PNG', M, y, w, h, undefined, 'FAST'); y += h + (gap || 0);
-      };
-      // header (drawn as HTML, so Arabic and other scripts come out right)
-      if (o.title || o.artist || o.info) {
-        const h = document.createElement('div'); h.className = 'pdf-head'; h.style.width = (ROW + GUT) + 'px';
-        if (o.title) { const e = document.createElement('h1'); e.textContent = o.title; h.appendChild(e); }
-        if (o.artist) { const e = document.createElement('h2'); e.textContent = o.artist; h.appendChild(e); }
-        if (o.info) { const e = document.createElement('p'); e.textContent = `Bass · tuning ${stringNames().join(' ')} · ♩ = ${Math.round(rhythmState.bpm)} · ${rhythmState.sig}`; h.appendChild(e); }
-        if (o.comment) { const e = document.createElement('p'); e.className = 'pdf-comment'; e.textContent = o.comment; h.appendChild(e); }
-        stage.appendChild(h); await place(h, 8); h.remove();
-      }
-      const starts = (info.barStarts || []).concat([info.width - 40]);
-      let x0 = 0, k = 0;
-      while (x0 < info.width - 41) {
-        let x1 = x0; for (const b of starts) if (b > x0 && b - x0 <= ROW) x1 = b;
-        if (x1 <= x0) x1 = Math.min(info.width, x0 + ROW);
-        const row = document.createElement('div'); row.className = 'pdf-row'; row.style.width = (x1 - x0 + 2 + GUT) + 'px'; row.style.height = H + 'px';
-        const c = grid.cloneNode(true); c.style.position = 'absolute'; c.style.left = (GUT - x0) + 'px'; c.style.top = '0'; c.style.width = info.width + 'px';
-        row.appendChild(c); stage.appendChild(row);
-        status.textContent = `Drawing row ${++k}…`; await place(row, 6); row.remove(); x0 = x1;
-      }
-      if (o.legend) { const l = document.querySelector('.legend-grid').cloneNode(true); l.className = 'pdf-legend'; l.style.width = (ROW + GUT) + 'px'; stage.appendChild(l); await place(l, 6); }
-      if (o.credit) { doc.setFontSize(8); doc.setTextColor(120); const n = doc.getNumberOfPages(); for (let i = 1; i <= n; i++) { doc.setPage(i); doc.text(`Tab made with Lowline · estimated from audio, check it by ear · page ${i}/${n}`, M, PHpt - 18); } }
-      const file = (o.title || 'bass tab').replace(/[\\/:*?"<>|]+/g, ' ').trim() + ' - bass tab.pdf';
-      doc.save(file); status.textContent = 'Saved: ' + file;
-    } finally { stage.remove(); }
+      const t0 = performance.now(), o = readOpts(); pdfDoc = await makePdf(o);
+      if (pdfUrl) URL.revokeObjectURL(pdfUrl); pdfUrl = URL.createObjectURL(pdfDoc.output('blob'));
+      $('pdfPreview').src = pdfUrl + '#toolbar=0&navpanes=0&view=FitH'; $('pdfOpen').href = pdfUrl;
+      st.textContent = `${pdfDoc.getNumberOfPages()} page${pdfDoc.getNumberOfPages() > 1 ? 's' : ''} · ${fileName(o)} · made in ${Math.round(performance.now() - t0)} ms`;
+    } catch (err) { st.textContent = 'Could not make the PDF: ' + (err.message || err); }
+  }
+  function openPdfDialog() {
+    if (!notes.length || !tabInfo) return toast('Load a song first.');
+    const d = $('pdfDialog'), t = d.querySelector('[name=title]');
+    if (!t.value || t.dataset.auto === '1') { t.value = songTitle(); t.dataset.auto = '1'; }
+    d.querySelector('[name=notation]').checked = viewMode !== 'tab';
+    d.hidden = false; preview();
   }
   $('pdfBtn').onclick = openPdfDialog;
   $('pdfCancel').onclick = () => { $('pdfDialog').hidden = true; };
+  $('pdfForm').addEventListener('input', e => { if (e.target.name === 'title') e.target.dataset.auto = '0'; clearTimeout(pdfTimer); pdfTimer = setTimeout(preview, 350); });
+  $('pdfForm').addEventListener('change', () => { clearTimeout(pdfTimer); pdfTimer = setTimeout(preview, 150); });
   $('pdfForm').onsubmit = async e => {
     e.preventDefault();
-    const f = new FormData(e.target), on = k => f.get(k) === 'on';
-    const o = { title: (f.get('title') || '').trim(), artist: (f.get('artist') || '').trim(), comment: (f.get('comment') || '').trim(), info: on('info'),
-      notation: on('notation'), rhythm: on('rhythm'), names: on('names'), fingers: on('fingers'), bars: on('bars'), legend: on('legend'), credit: on('credit'),
-      page: f.get('page'), orient: f.get('orient') };
-    const btn = e.target.querySelector('[type=submit]'); btn.disabled = true;
-    try { await makePdf(o); setTimeout(() => { $('pdfDialog').hidden = true; }, 600); }
-    catch (err) { $('pdfStatus').textContent = 'Could not make the PDF: ' + (err.message || err); }
-    finally { btn.disabled = false; }
+    const o = readOpts(); if (!pdfDoc) await preview();
+    pdfDoc.save(fileName(o)); $('pdfStatus').textContent = 'Saved: ' + fileName(o);
   };
-  window.LowlineEditor = { ops, select, setMode, makePdf, positions, get sel() { return sel; }, get editMode() { return editMode; } };
+  window.LowlineEditor = { ops, select, setMode, makePdf, preview, positions, get sel() { return sel; }, get editMode() { return editMode; } };
 })();

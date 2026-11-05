@@ -168,7 +168,10 @@ footer{height:64px;display:flex;align-items:center;justify-content:space-between
 /* PDF dialog */
 .pdf-dialog{position:fixed;inset:0;z-index:50;background:#0b2e22aa;display:grid;place-items:center;padding:16px}
 .pdf-dialog[hidden]{display:none}
-.pdf-dialog form{background:var(--cream);color:var(--green);border-radius:24px;padding:22px 24px;width:min(560px,100%);max-height:92vh;overflow:auto;display:grid;gap:10px;box-shadow:0 10px 0 var(--tomato)}
+.pdf-box{background:var(--cream);color:var(--green);border-radius:24px;width:min(1180px,100%);height:min(92vh,900px);display:grid;grid-template-columns:400px 1fr;overflow:hidden;box-shadow:0 10px 0 var(--tomato)}
+.pdf-dialog form{padding:20px 22px;overflow:auto;display:grid;gap:10px;align-content:start}
+#pdfPreview{width:100%;height:100%;border:0;background:#525659}
+@media(max-width:860px){.pdf-box{grid-template-columns:1fr;grid-template-rows:auto 60vh;height:auto;max-height:94vh;overflow:auto}}
 .pdf-dialog h3{margin:0 0 4px;font:22px var(--display);text-transform:uppercase}
 .pdf-dialog label.wide{display:grid;gap:4px;font-weight:700;font-size:14px}
 .pdf-dialog input[type=text],.pdf-dialog select{background:#fff9ea;border:2px solid var(--cream-2);border-radius:10px;padding:8px 10px}
@@ -181,17 +184,4 @@ footer{height:64px;display:flex;align-items:center;justify-content:space-between
 .pdf-buttons .primary{background:var(--tomato);border-color:var(--tomato);color:var(--cream)}
 .pdf-status{margin:0;min-height:1.2em;font-size:14px;color:#4c6457}
 @media(max-width:560px){.pdf-dialog fieldset{grid-template-columns:1fr}}
-/* off-screen stage the PDF is drawn from: plain black-on-white */
-.pdf-stage{position:absolute;left:-30000px;top:0;background:#fff}
-.pdf-stage .tab-grid{position:relative}
-.pdf-row{position:relative;overflow:hidden;background:#fff}
-.pdf-row .tab-note,.pdf-stage .tab-note{background:#fff!important;box-shadow:0 0 0 2px #fff!important;color:#000!important}
-.pdf-row .tab-cursor,.pdf-row .mark-hit{display:none!important}
-.pdf-row .string-label{background:#fff;box-shadow:none;width:36px;text-align:left;padding-left:4px}
-.pdf-head{background:#fff;color:#0f3d2e;padding:0 0 6px}
-.pdf-head h1{margin:0;font:30px 'Archivo Black',Arial,sans-serif}
-.pdf-head h2{margin:2px 0 0;font:600 18px Archivo,Arial,sans-serif;color:#333}
-.pdf-head p{margin:6px 0 0;font:15px Archivo,Arial,sans-serif;color:#333}
-.pdf-head .pdf-comment{font-style:italic}
-.pdf-legend{background:#fff;color:#222;font:13px/1.45 Archivo,Arial,sans-serif;display:grid;grid-template-columns:1fr 1fr;gap:2px 20px;padding-top:6px}
-.pdf-legend p{margin:2px 0}
+.pdf-open{font-size:13px;color:var(--green)}

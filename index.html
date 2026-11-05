@@ -69,27 +69,31 @@
     <div class="phone-note" id="mobileCurrent"><span>NOW</span><b>—</b></div>
     <aside class="fine-print"><p><b>Use your ears, too.</b> Audio-to-tab is an estimate: a question mark means a note is less certain. Click it and listen.</p><a href="#" id="futureLink">About the bass separation</a></aside>
   </main>
-  <footer><span>LOWLINE</span><span>MADE FOR THE LOW NOTES · 2026 · v11-05d</span></footer>
-  <div class="pdf-dialog" id="pdfDialog" hidden role="dialog" aria-modal="true" aria-labelledby="pdfTitle"><form id="pdfForm">
-    <h3 id="pdfTitle">Download PDF</h3>
-    <label class="wide">Title<input name="title" type="text" /></label>
-    <label class="wide">Artist<input name="artist" type="text" placeholder="optional" /></label>
-    <label class="wide">Note on the sheet<input name="comment" type="text" placeholder="optional, e.g. capo, feel, source" /></label>
-    <fieldset><legend>On the page</legend>
-      <label><input type="checkbox" name="info" checked /> Tuning, tempo, time</label>
-      <label><input type="checkbox" name="notation" /> Standard notation (bass clef)</label>
-      <label><input type="checkbox" name="rhythm" checked /> Rhythm stems</label>
-      <label><input type="checkbox" name="bars" checked /> Bar numbers</label>
-      <label><input type="checkbox" name="names" /> Note names</label>
-      <label><input type="checkbox" name="fingers" /> Finger numbers</label>
-      <label><input type="checkbox" name="legend" /> Legend (what the marks mean)</label>
-      <label><input type="checkbox" name="credit" checked /> Page numbers and credit line</label></fieldset>
-    <fieldset class="row2"><legend>Paper</legend>
-      <label>Size<select name="page"><option value="a4">A4</option><option value="letter">Letter</option></select></label>
-      <label>Orientation<select name="orient"><option value="portrait">Portrait</option><option value="landscape">Landscape</option></select></label></fieldset>
-    <p id="pdfStatus" class="pdf-status"></p>
-    <div class="pdf-buttons"><button type="button" id="pdfCancel">Cancel</button><button type="submit" class="primary">⤓ Download PDF</button></div>
-  </form></div>
+  <footer><span>LOWLINE</span><span>MADE FOR THE LOW NOTES · 2026 · v11-05e</span></footer>
+  <div class="pdf-dialog" id="pdfDialog" hidden role="dialog" aria-modal="true" aria-labelledby="pdfTitle"><div class="pdf-box">
+    <form id="pdfForm">
+      <h3 id="pdfTitle">Download PDF</h3>
+      <label class="wide">Title<input name="title" type="text" /></label>
+      <label class="wide">Artist<input name="artist" type="text" placeholder="optional" /></label>
+      <label class="wide">Note on the sheet<input name="comment" type="text" placeholder="optional, e.g. feel, source" /></label>
+      <fieldset><legend>On the page</legend>
+        <label><input type="checkbox" name="info" checked /> Tuning, tempo, time</label>
+        <label><input type="checkbox" name="notation" /> Standard notation</label>
+        <label><input type="checkbox" name="rhythm" checked /> Rhythm stems</label>
+        <label><input type="checkbox" name="bars" checked /> Bar numbers</label>
+        <label><input type="checkbox" name="names" /> Note names</label>
+        <label><input type="checkbox" name="fingers" /> Finger numbers</label>
+        <label><input type="checkbox" name="legend" /> Legend</label>
+        <label><input type="checkbox" name="credit" checked /> Page numbers</label></fieldset>
+      <fieldset class="row2"><legend>Paper</legend>
+        <label>Size<select name="page"><option value="a4">A4</option><option value="letter">Letter</option></select></label>
+        <label>Orientation<select name="orient"><option value="portrait">Portrait</option><option value="landscape">Landscape</option></select></label></fieldset>
+      <p id="pdfStatus" class="pdf-status"></p>
+      <a id="pdfOpen" class="pdf-open" href="#" target="_blank" rel="noopener">Preview not showing? Open it in a new tab</a>
+      <div class="pdf-buttons"><button type="button" id="pdfCancel">Close</button><button type="submit" class="primary">⤓ Download PDF</button></div>
+    </form>
+    <iframe id="pdfPreview" title="PDF preview"></iframe>
+  </div></div>
   <audio id="audioPlayer" preload="auto"></audio><div class="toast" id="toast" role="status"></div><script src="analysis.js"></script><script src="fingering.js"></script><script src="rhythm.js"></script><script src="tabview.js"></script><script src="app.js"></script><script src="editor.js"></script>
 </body>
 </html>

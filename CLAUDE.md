@@ -84,9 +84,12 @@ can), string & fret (every position, incl. 8va), start (one 16th per step), leng
 (plucked, H/P, slide to <note>, slide in/out, slap/pop, vibrato, dead), hear, delete, add at the playhead, undo. A changed or
 added note (`n.edited`) plays as a synth tone when clicked (the recording has the old pitch). Position choices are fingering locks
 (`n.lock`). It wraps `LowlineFingering.assign`, `playClip` and `buildTab`. Edits live in memory only (lost on reload).
-PDF: ⤓ PDF -> options dialog (title, artist, note; tuning/tempo, notation, rhythm, bar numbers, note names, fingers, legend,
-credit+page numbers; A4/Letter, portrait/landscape). The tab is re-rendered off-screen with those options, cut into rows at bar
-lines, rasterized with html2canvas (scale 2) and saved with jsPDF (vendor/, MIT, loaded on demand). 4 pages ~ 420 KB.
+PDF (`pdfexport.js`, loaded on demand with vendor/jspdf): vector drawing, laid out like a tab book: bar widths from note
+values (3.2 pt per 16th, min 12 pt per event), bars packed into systems, every system but a short last one justified to the page
+width. Options dialog with a live preview (iframe of the blob; a new-tab link for browsers without an inline PDF viewer):
+title/artist/note (drawn via <canvas>, so any script), tuning/tempo line, notation (bass clef, beams, accidentals), rhythm
+stems, bar numbers, note names, fingers, legend, page numbers, A4/Letter, portrait/landscape. File: "<Title> - Bass Tab.pdf".
+Ool Tani Keda: 21 raster pages -> 3 vector pages, ~40 ms, 91 KB (7 pages / 203 KB with notation).
 Separation speed: overlap 0.25 -> 0.1 (CT full: 208 s -> 146 s CLI, notes 62.4% -> 63.1%, precision 79.9% -> 80.9%).
 Separated songs are saved in IndexedDB 'lowline-bass' (Int16, key name|size|lastModified, last 8): reopening is instant (0.6 s).
 Playback: at 100% speed audio plays from the decoded AudioBuffer through Web Audio (`startWA`, `nowTime`, `curPos` in app.js):
