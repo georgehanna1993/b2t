@@ -1,17 +1,24 @@
-/* Lowline tab editor + PDF export (uses app.js globals: notes, buildTab, playClip, strings, rhythmState, nowTime, getAC).
+/* Lowline tab editor + PDF download (uses app.js globals: notes, buildTab, playClip, strings, stringNames, rhythmState,
+ * nowTime, curPos, playing, getAC, fmt, toast, tabInfo, midiName, showNames...).
  *
- * Edit mode: click a note to select it (you hear the recording), then change it; every change plays the new pitch as a
- * short synthesized bass tone. A string choice is kept by locking that note's string/fret in the fingering engine.
- * Keys: Up/Down semitone, Shift+Up/Down other string, Left/Right one 16th earlier/later, Delete, N add at the playhead,
- * Ctrl+Z undo, Esc done.
+ * Edit mode: click a note to select it; the note panel edits everything about it: pitch, string/fret position, start,
+ * length, technique. Every change plays the note as a synthesized bass tone, and a note you changed or added always plays
+ * as that tone when clicked (the recording still has the old sound). A position choice is kept by locking that note's
+ * string/fret in the fingering engine.
+ * Keys: Up/Down semitone, Left/Right one 16th earlier/later, Delete, N add, Ctrl+Z undo, Esc done.
  */
 (function () {
   'use strict';
   let editMode = false, sel = null;
   const undo = [];
   const $ = id => document.getElementById(id);
-  const names = ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'A♯', 'B'];
-  const nameOf = m => names[((m % 12) + 12) % 12] + (Math.floor(m / 12) - 1);
+  const NAMES = ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'A♯', 'B'];
+  const nameOf = m => NAMES[((m % 12) + 12) % 12] + (Math.floor(m / 12) - 1);
+  const LENS = [[1, '16th'], [2, '8th'], [3, 'dotted 8th'], [4, 'quarter'], [6, 'dotted quarter'], [8, 'half'], [12, 'dotted half'], [16, 'whole']];
+  const TECH = [['none', 'Plucked (normal)'], ['legato', 'Hammer-on / pull-off from the note before'], ['slide', 'Slide to another note'],
+    ['slideInUp', 'Slide in from below'], ['slideInDown', 'Slide in from above'], ['slideOutDown', 'Slide off, down'], ['slideOutUp', 'Slide off, up'],
+    ['slap', 'Slap / pop'], ['vibrato', 'Vibrato'], ['mute', 'Dead note (x)']];
+  const p16 = () => 15 / rhythmState.bpm;
 
   // the fingering engine honours locks: {noteIndex: {s, f}}
   const origAssign = LowlineFingering.assign;
@@ -20,96 +27,133 @@
     ns.forEach((n, i) => { if (n.lock) locks[i] = n.lock; });
     return origAssign.call(this, ns, open, Object.assign({}, opts || {}, { locks }));
   };
-  // clicking a note in edit mode also selects it
+  // clicking a note: select it in edit mode; a changed/added note plays its NEW pitch (the recording has the old one)
   const origClip = playClip;
-  playClip = function (t0, t1, i) { if (editMode && i != null && notes[i]) select(notes[i]); return origClip(t0, t1, i); };
-  // re-mark the selection after every redraw
+  playClip = function (t0, t1, i) {
+    const n = i != null ? notes[i] : null;
+    if (editMode && n) select(n);
+    if (n && n.edited && !n.mute) { if (typeof pause === 'function' && playing) pause(); return tone(n.midi, n.slideTo); }
+    return origClip(t0, t1, i);
+  };
   const origBuild = buildTab;
   buildTab = function () { origBuild(); mark(); };
 
-  function tone(midi) {
+  function tone(midi, slideTo) {
     try {
       const ac = getAC(); if (ac.state === 'suspended') ac.resume();
-      const f = 440 * Math.pow(2, (midi - 69) / 12), t = ac.currentTime, g = ac.createGain();
-      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.5, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.7);
+      const hz = m => 440 * Math.pow(2, (m - 69) / 12), t = ac.currentTime, g = ac.createGain(), len = slideTo != null ? 0.9 : 0.7;
+      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.5, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + len);
       g.connect(ac.destination);
       [[1, 'triangle', 1], [2, 'sine', 0.35], [3, 'sine', 0.12]].forEach(([h, type, a]) => {
-        const o = ac.createOscillator(), og = ac.createGain(); o.type = type; o.frequency.value = f * h; og.gain.value = a;
-        o.connect(og); og.connect(g); o.start(t); o.stop(t + 0.75);
+        const o = ac.createOscillator(), og = ac.createGain(); o.type = type; o.frequency.setValueAtTime(hz(midi) * h, t);
+        if (slideTo != null) { o.frequency.setValueAtTime(hz(midi) * h, t + 0.2); o.frequency.linearRampToValueAtTime(hz(slideTo) * h, t + 0.45); }
+        og.gain.value = a; o.connect(og); og.connect(g); o.start(t); o.stop(t + len + 0.05);
       });
     } catch (e) { /* no audio: fine */ }
   }
-  function snapshot() { undo.push({ notes: notes.map(n => Object.assign({}, n, { lock: n.lock ? Object.assign({}, n.lock) : undefined })), sel: notes.indexOf(sel) }); if (undo.length > 100) undo.shift(); }
+  function snapshot() { undo.push({ notes: notes.map(n => Object.assign({}, n, { lock: n.lock ? Object.assign({}, n.lock) : undefined })), sel: notes.indexOf(sel) }); if (undo.length > 200) undo.shift(); }
   function changed(play) {
-    sel && (sel.confidence = 1, sel.edited = true);
+    if (sel) { sel.confidence = 1; sel.edited = true; }
     buildTab();
     $('noteCount').textContent = `· ${notes.length} NOTES`;
-    if (play && sel && !sel.mute) tone(sel.midi);
-    info();
+    if (play && sel && !sel.mute) tone(sel.midi, sel.slideTo);
+    panel();
   }
-  function select(n) { sel = n; mark(); info(); }
+  function select(n) { sel = n; mark(); panel(); }
   function mark() {
     document.querySelectorAll('.tab-note.selected').forEach(e => e.classList.remove('selected'));
     if (!editMode || !sel) return;
     const i = notes.indexOf(sel); if (i < 0) { sel = null; return; }
     const el = document.querySelector(`.tab-note[data-index="${i}"]:not(.slide-end)`); if (el) el.classList.add('selected');
   }
-  function info() {
-    const box = $('editInfo'); if (!box) return;
-    if (!sel || notes.indexOf(sel) < 0) { box.textContent = 'Click a note to select it, or add one at the playhead.'; return; }
-    box.textContent = sel.mute ? `Dead note · ${fmt(sel.time)}` : `${nameOf(sel.midi)} · ${(stringNames()[sel.string] || '?')} string, fret ${sel.fret} · ${fmt(sel.time)}`;
+  // every string/fret where a pitch can be played (notes below the low string an octave up, like the fingering engine)
+  function positions(m) {
+    const open = strings(), low = Math.min(...open); let up = 0;
+    while (m + up < low && up < 24) up += 12;
+    return open.map((o, s) => ({ s, f: m + up - o, up })).filter(p => p.f >= 0 && p.f <= 24);
   }
-  const step16 = () => 60 / rhythmState.bpm / 4;
+  function techOf(n) {
+    if (n.mute) return 'mute'; if (n.slideTo != null) return 'slide'; if (n.technique === 'legato') return 'legato';
+    if (n.slideIn) return n.slideIn === 'up' ? 'slideInUp' : 'slideInDown'; if (n.slideOut) return n.slideOut === 'up' ? 'slideOutUp' : 'slideOutDown';
+    if (n.slap) return 'slap'; if (n.vibrato) return 'vibrato'; return 'none';
+  }
+  const opt = (v, label, cur) => `<option value="${v}"${String(v) === String(cur) ? ' selected' : ''}>${label}</option>`;
+  const noteOptions = cur => { let h = ''; for (let m = 64; m >= 21; m--) h += opt(m, nameOf(m), cur); return h; };
+
+  function panel() {
+    const box = $('editBar'); if (!box) return;
+    if (!editMode) { box.hidden = true; return; }
+    box.hidden = false;
+    const tools = `<span class="ed-actions"><button data-op="add">+ Add note</button><button data-op="undo">↶ Undo</button></span>`;
+    if (!sel || notes.indexOf(sel) < 0) { box.innerHTML = `<p class="ed-hint">Click a note to edit it, or add one at the playhead (click the waveform to place the playhead).</p>${tools}`; wire(); return; }
+    const n = sel, len = Math.max(1, Math.round(n.dur / p16())), tech = techOf(n), pos = n.mute ? [] : positions(n.midi);
+    const curPosKey = n.string != null ? `${n.string}:${n.fret}` : '';
+    box.innerHTML = `
+      <div class="ed-field"><label>Note</label><span class="row"><button data-op="pitch" data-v="-1" title="Down a semitone (↓)">−</button>
+        <select data-op="note" ${n.mute ? 'disabled' : ''}>${noteOptions(n.midi)}</select><button data-op="pitch" data-v="1" title="Up a semitone (↑)">+</button></span></div>
+      <div class="ed-field"><label>String &amp; fret</label><select data-op="pos" ${n.mute ? 'disabled' : ''}>${pos.map(p => opt(`${p.s}:${p.f}`, `${stringNames()[p.s]} string · fret ${p.f}${p.up ? ' (8va)' : ''}`, curPosKey)).join('')}</select></div>
+      <div class="ed-field"><label>Starts at</label><span class="row"><button data-op="time" data-v="-1" title="One 16th earlier (←)">◀</button><output>${fmt(n.time)}.${String(Math.floor((n.time % 1) * 100)).padStart(2, '0')}</output><button data-op="time" data-v="1" title="One 16th later (→)">▶</button></span></div>
+      <div class="ed-field"><label>Length</label><select data-op="len">${LENS.map(([u, l]) => opt(u, l, LENS.some(x => x[0] === len) ? len : 2)).join('')}</select></div>
+      <div class="ed-field"><label>Technique</label><select data-op="tech">${TECH.map(([v, l]) => opt(v, l, tech)).join('')}</select></div>
+      ${tech === 'slide' ? `<div class="ed-field"><label>Slide to</label><select data-op="slideTo">${noteOptions(n.slideTo)}</select></div>` : ''}
+      <span class="ed-actions"><button data-op="hear">▶ Hear</button><button data-op="del">Delete</button>${tools.replace(/^<span class="ed-actions">|<\/span>$/g, '')}</span>`;
+    wire();
+  }
+  function wire() {
+    $('editBar').querySelectorAll('[data-op]').forEach(el => {
+      const ev = el.tagName === 'SELECT' ? 'onchange' : 'onclick';
+      el[ev] = () => { const op = el.dataset.op, v = el.tagName === 'SELECT' ? el.value : el.dataset.v; ops[op](v != null ? v : undefined); };
+    });
+  }
   const ops = {
-    pitch(d) {
-      if (!sel || sel.mute) return; snapshot();
-      sel.midi += d; sel.mf = sel.midi; if (sel.slideTo != null) sel.slideTo += d;
-      if (sel.string != null && sel.fret + d >= 0 && sel.fret + d <= 24) sel.lock = { s: sel.string, f: sel.fret + d }; else delete sel.lock;
+    pitch(d) { if (!sel || sel.mute) return; ops.note(sel.midi + (+d)); },
+    note(m) {
+      m = +m; if (!sel || sel.mute || m === sel.midi) return; snapshot();
+      const d = m - sel.midi; sel.midi = m; sel.mf = m; if (sel.slideTo != null) sel.slideTo += d;
+      const keep = positions(m).find(p => p.s === sel.string);           // stay on the same string when it can
+      if (keep) sel.lock = { s: keep.s, f: keep.f }; else delete sel.lock;
       changed(true);
     },
-    string(dir) {
-      if (!sel || sel.mute || sel.string == null) return;
-      const open = strings(), m = sel.midi + (sel.octaveUp || 0);
-      for (let s = sel.string + dir; s >= 0 && s < open.length; s += dir) {
-        const f = m - open[s];
-        if (f >= 0 && f <= 22) { snapshot(); sel.lock = { s, f }; changed(true); return; }
-      }
-      toast('No other string can play this note.');
-    },
-    time(d) {
+    pos(v) { if (!sel) return; const [s, f] = v.split(':').map(Number); snapshot(); sel.lock = { s, f }; changed(true); },
+    time(d) { if (!sel) return; snapshot(); sel.time = Math.max(0, sel.time + (+d) * p16()); notes.sort((a, b) => a.time - b.time); changed(true); },
+    len(u) { if (!sel) return; snapshot(); sel.dur = (+u) * p16() * 0.98; changed(false); },
+    tech(v) {
       if (!sel) return; snapshot();
-      sel.time = Math.max(0, sel.time + d * step16());
-      notes.sort((a, b) => a.time - b.time); changed(true);
+      const n = sel;
+      delete n.slideTo; delete n.slideToF; delete n.slideCut; delete n.slideIn; delete n.slideOut; n.slap = false; n.vibrato = false; n.technique = null;
+      if (n.mute && v !== 'mute') { n.mute = false; if (n.midi == null || isNaN(n.midi)) { const pv = notes.filter(q => !q.mute && q.time < n.time).pop(); n.midi = pv ? pv.midi : 40; } n.mf = n.midi; }
+      if (v === 'legato') n.technique = 'legato';
+      else if (v === 'slide') { n.slideTo = n.midi + 2; n.technique = 'slide'; }
+      else if (v === 'slideInUp') n.slideIn = 'up'; else if (v === 'slideInDown') n.slideIn = 'down';
+      else if (v === 'slideOutDown') n.slideOut = 'down'; else if (v === 'slideOutUp') n.slideOut = 'up';
+      else if (v === 'slap') n.slap = true; else if (v === 'vibrato') n.vibrato = true;
+      else if (v === 'mute') { n.mute = true; n.technique = 'muted'; delete n.lock; }
+      changed(v !== 'mute');
     },
-    del() {
-      if (!sel) return; snapshot();
-      const i = notes.indexOf(sel); notes.splice(i, 1); sel = notes[Math.min(i, notes.length - 1)] || null; changed(false);
-    },
+    slideTo(m) { if (!sel) return; snapshot(); sel.slideTo = +m; changed(true); },
+    hear() { if (sel && !sel.mute) tone(sel.midi, sel.slideTo); },
+    del() { if (!sel) return; snapshot(); const i = notes.indexOf(sel); notes.splice(i, 1); sel = notes[Math.min(i, notes.length - 1)] || null; changed(false); },
     add() {
       snapshot();
       const t = playing ? nowTime() : curPos, prev = notes.filter(n => !n.mute && n.time <= t).pop() || notes.find(n => !n.mute);
       const m = sel && !sel.mute ? sel.midi : prev ? prev.midi : 40;
-      const n = { time: t, midi: m, mf: m, dur: 60 / rhythmState.bpm / 2, confidence: 1, edited: true, added: true, technique: null };
+      const n = { time: t, midi: m, mf: m, dur: 2 * p16() * 0.98, confidence: 1, edited: true, added: true, technique: null };
       notes.push(n); notes.sort((a, b) => a.time - b.time); sel = n; changed(true);
     },
-    undo() {
-      const u = undo.pop(); if (!u) return toast('Nothing to undo.');
-      notes = u.notes; sel = notes[u.sel] || null; changed(false);
-    }
+    undo() { const u = undo.pop(); if (!u) return toast('Nothing to undo.'); notes = u.notes; sel = notes[u.sel] || null; changed(false); }
   };
   function setMode(on) {
     editMode = on; document.body.classList.toggle('editing', on);
     $('editBtn').setAttribute('aria-pressed', on); $('editBtn').textContent = on ? '✓ Done' : '✎ Edit';
-    $('editBar').hidden = !on; if (!on) sel = null; mark(); info();
+    if (!on) sel = null; mark(); panel();
   }
   $('editBtn').onclick = () => setMode(!editMode);
-  document.querySelectorAll('[data-edit]').forEach(b => b.onclick = () => { const [op, arg] = b.dataset.edit.split(':'); ops[op](arg != null ? +arg : undefined); });
   document.addEventListener('keydown', e => {
     if (!editMode || /INPUT|SELECT|TEXTAREA/.test(e.target.tagName)) return;
     const k = e.key; let done = true;
     if ((e.ctrlKey || e.metaKey) && k.toLowerCase() === 'z') ops.undo();
-    else if (k === 'ArrowUp') e.shiftKey ? ops.string(1) : ops.pitch(1);
-    else if (k === 'ArrowDown') e.shiftKey ? ops.string(-1) : ops.pitch(-1);
+    else if (k === 'ArrowUp') ops.pitch(1);
+    else if (k === 'ArrowDown') ops.pitch(-1);
     else if (k === 'ArrowLeft') ops.time(-1);
     else if (k === 'ArrowRight') ops.time(1);
     else if (k === 'Delete' || k === 'Backspace') ops.del();
@@ -119,28 +163,77 @@
     if (done) e.preventDefault();
   });
 
-  // ---- PDF: a print layout that wraps the tab into rows at bar lines; the browser's "Save as PDF" makes the file ----
-  function exportPdf() {
+  // ---- PDF download: choose what goes on it, render the tab with those options, cut it into rows, save a .pdf ----
+  function loadScript(src) { return new Promise((res, rej) => { if (document.querySelector(`script[src="${src}"]`)) return res(); const s = document.createElement('script'); s.src = src; s.onload = res; s.onerror = () => rej(new Error('Could not load ' + src)); document.head.appendChild(s); }); }
+  const songTitle = () => $('trackName').textContent.replace(/\s+—\s+(your bassline|Lowline session)$/, '').replace(/\.(mp3|wav|m4a|ogg|flac)$/i, '').trim();
+  function openPdfDialog() {
     if (!notes.length || !tabInfo) return toast('Load a song first.');
-    const wasEdit = editMode; if (wasEdit) setMode(false);
-    const area = $('printArea'); area.innerHTML = '';
-    const grid = $('tabGrid'), H = grid.offsetHeight, PW = 660, GUT = 38, starts = (tabInfo.barStarts || []).concat([tabInfo.width - 40]);
-    const title = $('trackName').textContent.replace(/\s+—\s+your bassline$/, '').replace(/\.(mp3|wav|m4a|ogg|flac)$/i, '');
-    const head = document.createElement('div'); head.className = 'print-head';
-    head.innerHTML = `<h1></h1><p>Bass · tuning ${stringNames().join(' ')} · ♩ = ${Math.round(rhythmState.bpm)} · ${rhythmState.sig}</p>`;
-    head.querySelector('h1').textContent = title; area.appendChild(head);
-    let x0 = 0;
-    while (x0 < tabInfo.width - 41) {
-      let x1 = x0; for (const b of starts) if (b > x0 && b - x0 <= PW) x1 = b;
-      if (x1 <= x0) x1 = Math.min(tabInfo.width, x0 + PW);
-      const row = document.createElement('div'); row.className = 'print-row'; row.style.width = (x1 - x0 + 2 + GUT) + 'px'; row.style.height = H + 'px';
-      const c = grid.cloneNode(true); c.removeAttribute('id'); c.style.position = 'absolute'; c.style.left = (GUT - x0) + 'px'; c.style.top = '0';
-      row.appendChild(c); area.appendChild(row); x0 = x1;
-    }
-    const foot = document.createElement('p'); foot.className = 'print-foot'; foot.textContent = 'Tab made with Lowline · estimated from audio, check it by ear'; area.appendChild(foot);
-    const oldTitle = document.title; document.title = title + ' - bass tab';
-    setTimeout(() => { window.print(); document.title = oldTitle; if (wasEdit) setMode(true); }, 50);
+    const d = $('pdfDialog');
+    d.querySelector('[name=title]').value = d.querySelector('[name=title]').value || songTitle();
+    d.querySelector('[name=notation]').checked = viewMode !== 'tab';
+    d.hidden = false; d.querySelector('[name=title]').focus();
   }
-  $('pdfBtn').onclick = exportPdf;
-  window.LowlineEditor = { ops, select, setMode, exportPdf, get sel() { return sel; }, get editMode() { return editMode; } };
+  async function makePdf(o) {
+    const status = $('pdfStatus'); status.textContent = 'Preparing…';
+    await loadScript('vendor/jspdf.umd.min.js'); await loadScript('vendor/html2canvas.min.js');
+    const { jsPDF } = window.jspdf;
+    const land = o.orient === 'landscape', doc = new jsPDF({ unit: 'pt', format: o.page, orientation: o.orient });
+    const PWpt = doc.internal.pageSize.getWidth(), PHpt = doc.internal.pageSize.getHeight(), M = 36, CW = PWpt - 2 * M;
+    const ROW = land ? 980 : 680, GUT = 38, SCALE = CW / (ROW + GUT);          // CSS px -> pt
+    // an off-screen stage with the tab drawn with the chosen options
+    const stage = document.createElement('div'); stage.className = 'pdf-stage'; document.body.appendChild(stage);
+    try {
+      const grid = document.createElement('div'); grid.className = 'tab-grid'; stage.appendChild(grid);
+      const beatSec = 60 / rhythmState.bpm;
+      const rh = LowlineRhythm.build(notes, { bpm: rhythmState.bpm, origin: rhythmState.origin + rhythmState.shiftBeats * beatSec, sig: rhythmState.sig });
+      const info = LowlineTabView.render({ grid, notes, rhythm: rh, names: stringNames(), openMidis: strings(),
+        opts: { rhythm: o.rhythm, bars: o.bars, names: o.names, fingers: o.fingers, notation: o.notation }, midiName, fmt, onSeek() {}, onPlay() {} });
+      if (o.names) grid.classList.add('show-names');
+      const H = grid.offsetHeight || info.height;
+      let y = M;
+      const shot = async el => html2canvas(el, { scale: 2, backgroundColor: '#ffffff', logging: false });
+      const place = async (el, gap) => {
+        const c = await shot(el), w = Math.min(CW, c.width / 2 * SCALE), h = c.height / 2 * SCALE * (w / (c.width / 2 * SCALE));
+        if (y + h > PHpt - M) { doc.addPage(); y = M; }
+        doc.addImage(c, 'PNG', M, y, w, h, undefined, 'FAST'); y += h + (gap || 0);
+      };
+      // header (drawn as HTML, so Arabic and other scripts come out right)
+      if (o.title || o.artist || o.info) {
+        const h = document.createElement('div'); h.className = 'pdf-head'; h.style.width = (ROW + GUT) + 'px';
+        if (o.title) { const e = document.createElement('h1'); e.textContent = o.title; h.appendChild(e); }
+        if (o.artist) { const e = document.createElement('h2'); e.textContent = o.artist; h.appendChild(e); }
+        if (o.info) { const e = document.createElement('p'); e.textContent = `Bass · tuning ${stringNames().join(' ')} · ♩ = ${Math.round(rhythmState.bpm)} · ${rhythmState.sig}`; h.appendChild(e); }
+        if (o.comment) { const e = document.createElement('p'); e.className = 'pdf-comment'; e.textContent = o.comment; h.appendChild(e); }
+        stage.appendChild(h); await place(h, 8); h.remove();
+      }
+      const starts = (info.barStarts || []).concat([info.width - 40]);
+      let x0 = 0, k = 0;
+      while (x0 < info.width - 41) {
+        let x1 = x0; for (const b of starts) if (b > x0 && b - x0 <= ROW) x1 = b;
+        if (x1 <= x0) x1 = Math.min(info.width, x0 + ROW);
+        const row = document.createElement('div'); row.className = 'pdf-row'; row.style.width = (x1 - x0 + 2 + GUT) + 'px'; row.style.height = H + 'px';
+        const c = grid.cloneNode(true); c.style.position = 'absolute'; c.style.left = (GUT - x0) + 'px'; c.style.top = '0'; c.style.width = info.width + 'px';
+        row.appendChild(c); stage.appendChild(row);
+        status.textContent = `Drawing row ${++k}…`; await place(row, 6); row.remove(); x0 = x1;
+      }
+      if (o.legend) { const l = document.querySelector('.legend-grid').cloneNode(true); l.className = 'pdf-legend'; l.style.width = (ROW + GUT) + 'px'; stage.appendChild(l); await place(l, 6); }
+      if (o.credit) { doc.setFontSize(8); doc.setTextColor(120); const n = doc.getNumberOfPages(); for (let i = 1; i <= n; i++) { doc.setPage(i); doc.text(`Tab made with Lowline · estimated from audio, check it by ear · page ${i}/${n}`, M, PHpt - 18); } }
+      const file = (o.title || 'bass tab').replace(/[\\/:*?"<>|]+/g, ' ').trim() + ' - bass tab.pdf';
+      doc.save(file); status.textContent = 'Saved: ' + file;
+    } finally { stage.remove(); }
+  }
+  $('pdfBtn').onclick = openPdfDialog;
+  $('pdfCancel').onclick = () => { $('pdfDialog').hidden = true; };
+  $('pdfForm').onsubmit = async e => {
+    e.preventDefault();
+    const f = new FormData(e.target), on = k => f.get(k) === 'on';
+    const o = { title: (f.get('title') || '').trim(), artist: (f.get('artist') || '').trim(), comment: (f.get('comment') || '').trim(), info: on('info'),
+      notation: on('notation'), rhythm: on('rhythm'), names: on('names'), fingers: on('fingers'), bars: on('bars'), legend: on('legend'), credit: on('credit'),
+      page: f.get('page'), orient: f.get('orient') };
+    const btn = e.target.querySelector('[type=submit]'); btn.disabled = true;
+    try { await makePdf(o); setTimeout(() => { $('pdfDialog').hidden = true; }, 600); }
+    catch (err) { $('pdfStatus').textContent = 'Could not make the PDF: ' + (err.message || err); }
+    finally { btn.disabled = false; }
+  };
+  window.LowlineEditor = { ops, select, setMode, makePdf, positions, get sel() { return sel; }, get editMode() { return editMode; } };
 })();

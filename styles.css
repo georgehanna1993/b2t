@@ -151,26 +151,47 @@ footer{height:64px;display:flex;align-items:center;justify-content:space-between
 .tab-tools button[aria-pressed=true]{background:var(--green);color:var(--cream)}
 .edit-bar{display:flex;flex-wrap:wrap;align-items:center;gap:10px 18px;margin:6px 30px 4px;padding:10px 14px;background:var(--cream-2);border-radius:16px;font-size:15px}
 .edit-bar[hidden]{display:none}
-#editInfo{flex:1 1 220px;font-weight:600}
-.edit-group{display:flex;align-items:center;gap:6px}
-.edit-group b{font:12px var(--display);letter-spacing:.08em;color:var(--tomato);text-transform:uppercase;margin-right:2px}
-.edit-group button{min-width:38px;border:0;background:var(--paper);border-radius:10px;padding:7px 10px;font-weight:700;cursor:pointer}
-.edit-group button:hover{background:#fff}
 .editing .tab-note{outline:1px dashed #0f3d2e33}
 .tab-note.selected{background:var(--green)!important;color:var(--cream)!important;box-shadow:0 0 0 3px var(--tomato)!important;border-radius:13px}
 @media(max-width:820px){.edit-bar{margin:6px 18px 4px}.tab-tools button{padding:6px 10px}}
-/* print / PDF */
-#printArea{display:none}
-@media print{
-  @page{size:A4 portrait;margin:12mm}
-  body{background:#fff!important;color:#000}
-  body>*:not(#printArea){display:none!important}
-  #printArea{display:block}
-  .print-head h1{font:24px 'Archivo Black',Arial,sans-serif;margin:0 0 2px;color:#0f3d2e}
-  .print-head p{margin:0 0 14px;font:13px Archivo,Arial,sans-serif;color:#333}
-  .print-row{position:relative;overflow:hidden;margin:0 0 6px;break-inside:avoid;page-break-inside:avoid}
-  .print-row .tab-note{background:#fff!important;box-shadow:0 0 0 2px #fff!important;color:#000!important}
-  .print-row .tab-cursor,.print-row .mark-hit{display:none!important}
-  .print-row .string-label{background:#fff;box-shadow:0 0 0 3px #fff;width:36px;text-align:left;padding-left:4px;box-shadow:none}
-  .print-foot{margin-top:10px;font:11px Archivo,Arial,sans-serif;color:#555}
-}
+
+.edit-bar{align-items:flex-end}
+.ed-hint{margin:0;flex:1 1 300px}
+.ed-field{display:flex;flex-direction:column;gap:4px}
+.ed-field label{font:12px var(--display);letter-spacing:.08em;color:var(--tomato);text-transform:uppercase}
+.ed-field select,.ed-field output{background:var(--paper);border:0;border-radius:10px;padding:8px 10px;font-weight:600;min-height:36px}
+.ed-field output{display:inline-flex;align-items:center;font-family:var(--mono);font-size:14px}
+.ed-field .row{display:flex;gap:6px;align-items:center}
+.edit-bar button{min-width:38px;border:0;background:var(--paper);border-radius:10px;padding:8px 12px;font-weight:700;cursor:pointer;min-height:36px}
+.edit-bar button:hover{background:#fff}
+.ed-actions{display:flex;gap:6px;margin-left:auto;flex-wrap:wrap}
+/* PDF dialog */
+.pdf-dialog{position:fixed;inset:0;z-index:50;background:#0b2e22aa;display:grid;place-items:center;padding:16px}
+.pdf-dialog[hidden]{display:none}
+.pdf-dialog form{background:var(--cream);color:var(--green);border-radius:24px;padding:22px 24px;width:min(560px,100%);max-height:92vh;overflow:auto;display:grid;gap:10px;box-shadow:0 10px 0 var(--tomato)}
+.pdf-dialog h3{margin:0 0 4px;font:22px var(--display);text-transform:uppercase}
+.pdf-dialog label.wide{display:grid;gap:4px;font-weight:700;font-size:14px}
+.pdf-dialog input[type=text],.pdf-dialog select{background:#fff9ea;border:2px solid var(--cream-2);border-radius:10px;padding:8px 10px}
+.pdf-dialog fieldset{border:2px solid var(--cream-2);border-radius:14px;padding:8px 14px 12px;display:grid;grid-template-columns:1fr 1fr;gap:6px 14px}
+.pdf-dialog legend{font:12px var(--display);letter-spacing:.1em;color:var(--tomato);text-transform:uppercase;padding:0 6px}
+.pdf-dialog fieldset label{display:flex;align-items:center;gap:8px;font-size:15px}
+.pdf-dialog fieldset.row2 label{justify-content:space-between}
+.pdf-buttons{display:flex;justify-content:flex-end;gap:10px}
+.pdf-buttons button{border:2px solid var(--green);background:transparent;border-radius:99px;padding:10px 18px;font-weight:700;cursor:pointer}
+.pdf-buttons .primary{background:var(--tomato);border-color:var(--tomato);color:var(--cream)}
+.pdf-status{margin:0;min-height:1.2em;font-size:14px;color:#4c6457}
+@media(max-width:560px){.pdf-dialog fieldset{grid-template-columns:1fr}}
+/* off-screen stage the PDF is drawn from: plain black-on-white */
+.pdf-stage{position:absolute;left:-30000px;top:0;background:#fff}
+.pdf-stage .tab-grid{position:relative}
+.pdf-row{position:relative;overflow:hidden;background:#fff}
+.pdf-row .tab-note,.pdf-stage .tab-note{background:#fff!important;box-shadow:0 0 0 2px #fff!important;color:#000!important}
+.pdf-row .tab-cursor,.pdf-row .mark-hit{display:none!important}
+.pdf-row .string-label{background:#fff;box-shadow:none;width:36px;text-align:left;padding-left:4px}
+.pdf-head{background:#fff;color:#0f3d2e;padding:0 0 6px}
+.pdf-head h1{margin:0;font:30px 'Archivo Black',Arial,sans-serif}
+.pdf-head h2{margin:2px 0 0;font:600 18px Archivo,Arial,sans-serif;color:#333}
+.pdf-head p{margin:6px 0 0;font:15px Archivo,Arial,sans-serif;color:#333}
+.pdf-head .pdf-comment{font-style:italic}
+.pdf-legend{background:#fff;color:#222;font:13px/1.45 Archivo,Arial,sans-serif;display:grid;grid-template-columns:1fr 1fr;gap:2px 20px;padding-top:6px}
+.pdf-legend p{margin:2px 0}

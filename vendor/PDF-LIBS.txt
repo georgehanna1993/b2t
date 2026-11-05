@@ -1,0 +1,1 @@
+jspdf 2.5.2 (MIT, https://github.com/parallax/jsPDF) and html2canvas 1.4.1 (MIT, https://github.com/niklasvh/html2canvas), copied unmodified from npm. Loaded only when a PDF is made.
