@@ -56,14 +56,27 @@ function setWave(data){if(canvas.getBoundingClientRect().width)drawWave(data);el
 function highlight(i){currentIndex=i;document.querySelectorAll('.tab-note').forEach(el=>el.classList.toggle('current',+el.dataset.index===i));let n=notes[i];document.querySelector('#mobileCurrent b').textContent=n?`${midiName(n.midi)} · ${n.fret}`:'—';if(n){let el=document.querySelector(`.tab-note[data-index="${i}"]`);}}
 // Playback: at 100% speed the decoded audio plays through Web Audio (starts instantly at any point, so seeking, dragging
 // and pausing have no lag). Slowed-down speeds need pitch preservation, which only the <audio> element offers.
-let waSrc=null,waStart=0,waOffset=0,curPos=0,waBufs={main:null,bass:null};
+let waSrc=null,waSrc2=null,waStart=0,waOffset=0,curPos=0,waBufs={main:null,bass:null,rest:null};
 function getAC(){const AC=window.AudioContext||window.webkitAudioContext;return window.audioContext||(window.audioContext=new AC())}
-function curBuf(){return hearBass&&waBufs.bass?waBufs.bass:waBufs.main}
+function curBuf(){return waBufs.main}
 function useWA(){return speed===1&&!!curBuf()}
-function startWA(t,dur){const ac=getAC();if(ac.state==='suspended')ac.resume();stopWA();const src=ac.createBufferSource();src.buffer=curBuf();src.connect(recOut());
-  if(dur!=null)src.start(0,t,dur);else src.start(0,t);waSrc=src;waStart=ac.currentTime;waOffset=t;src.onended=()=>{if(waSrc===src){waSrc=null;curPos=Math.min(duration,t+(dur!=null?dur:duration))}}}
+function startWA(t,dur){const ac=getAC();if(ac.state==='suspended')ac.resume();stopWA();const src=ac.createBufferSource();
+  if(waBufs.bass&&waBufs.rest){                // full song: bass and the rest of the band as two sources, each with its own volume
+    src.buffer=waBufs.bass;src.connect(mixGain('bass'));const s2=ac.createBufferSource();s2.buffer=waBufs.rest;s2.connect(mixGain('band'));
+    const w=ac.currentTime+0.01;if(dur!=null){src.start(w,t,dur);s2.start(w,t,dur)}else{src.start(w,t);s2.start(w,t)}waSrc2=s2;
+  }else{src.buffer=curBuf();src.connect(recOut());if(dur!=null)src.start(0,t,dur);else src.start(0,t)}
+  waSrc=src;waStart=ac.currentTime;waOffset=t;src.onended=()=>{if(waSrc===src){waSrc=null;curPos=Math.min(duration,t+(dur!=null?dur:duration))}}}
 function recOut(){const ac=getAC();if(!window.recGain){window.recGain=ac.createGain();window.recGain.connect(ac.destination)}return window.recGain}   // the recording's volume (0 for 'tab only')
-function stopWA(){if(waSrc){const s=waSrc;waSrc=null;s.onended=null;try{s.stop()}catch(e){}}}
+function stopWA(){if(waSrc){const s=waSrc;waSrc=null;s.onended=null;try{s.stop()}catch(e){}}if(waSrc2){try{waSrc2.stop()}catch(e){}waSrc2=null}}
+// ---- full songs: two volume sliders, the separated bass and the rest of the band (= full mix minus bass) ----
+const mixVol={bass:+(localStorage.getItem('lowline.mixBass')||100)/100,band:+(localStorage.getItem('lowline.mixBand')||100)/100},mixNodes={};
+function mixGain(k){const ac=getAC();if(!mixNodes[k]){mixNodes[k]=ac.createGain();mixNodes[k].connect(recOut())}mixNodes[k].gain.value=mixVol[k];return mixNodes[k]}
+let mixUrl=null;
+function mixBlob(){const B=waBufs.bass,Rs=waBufs.rest,n=B.length,b=new ArrayBuffer(44+n*2),v=new DataView(b),w=(o,t)=>{for(let i=0;i<t.length;i++)v.setUint8(o+i,t.charCodeAt(i))};
+  w(0,'RIFF');v.setUint32(4,36+n*2,true);w(8,'WAVEfmt ');v.setUint32(16,16,true);v.setUint16(20,1,true);v.setUint16(22,1,true);v.setUint32(24,B.sampleRate,true);v.setUint32(28,B.sampleRate*2,true);v.setUint16(32,2,true);v.setUint16(34,16,true);w(36,'data');v.setUint32(40,n*2,true);
+  const bl=B.getChannelData(0),br=B.getChannelData(1),rl=Rs.getChannelData(0),rr=Rs.getChannelData(1),gb=mixVol.bass*0.5,gr=mixVol.band*0.5;
+  for(let i=0;i<n;i++){const x=Math.max(-1,Math.min(1,(bl[i]+br[i])*gb+(rl[i]+rr[i])*gr));v.setInt16(44+i*2,x*32767,true)}return new Blob([b],{type:'audio/wav'})}
+function refreshMixUrl(){if(!(waBufs.bass&&waBufs.rest))return;if(mixUrl)URL.revokeObjectURL(mixUrl);mixUrl=URL.createObjectURL(mixBlob());bassUrl=mixUrl;setSource()}  // slowed playback (<audio>) plays a rendered mix
 function nowTime(){if(waSrc)return Math.min(duration,waOffset+(getAC().currentTime-waStart));if(!audio.paused)return audio.currentTime;return curPos}
 function syncTab(t){const view=document.getElementById('tabScroll'),maxScroll=Math.max(0,view.scrollWidth-view.clientWidth),x=playheadX(t);if(tabInfo&&tabInfo.cursor)tabInfo.cursor.style.left=x+'px';view.scrollLeft=Math.max(0,Math.min(maxScroll,x-view.clientWidth*.45))}
 function updateTime(){if(!playing)return;let t=nowTime();if(loopOn&&t>=loopEnd&&loopEnd>loopStart){seek(loopStart);t=loopStart}if(t>=duration-0.01){pause();curPos=0;audio.currentTime=0;return}let pct=Math.min(1,t/duration)*100;document.getElementById('waveCursor').style.left=pct+'%';document.getElementById('waveProgress').style.width=pct+'%';document.getElementById('currentTime').textContent=fmt(t);syncTab(t);let idx=-1;for(let i=0;i<notes.length;i++){if(notes[i].time<=t)idx=i;else break}if(idx!==currentIndex)highlight(idx);raf=requestAnimationFrame(updateTime)}
@@ -72,7 +85,7 @@ async function play(){clipEnd=null;clearTimeout(clipTimer);if(playing)return;if(
 function setPosition(t){t=Math.max(0,Math.min(duration,t));curPos=t;if(!useWA()&&audio.src)try{audio.currentTime=t}catch(e){}if(!audio.src)window.lastDemoNote=-1;const pct=duration?t/duration*100:0;document.getElementById('waveCursor').style.left=pct+'%';document.getElementById('waveProgress').style.width=pct+'%';document.getElementById('currentTime').textContent=fmt(t);let i=-1;for(let j=0;j<notes.length;j++)if(notes[j].time<=t)i=j;if(i!==currentIndex)highlight(i);syncTab(t)}
 function seek(t){if(playing){pause();setPosition(t);play()}else setPosition(t)}
 function buildDemoWav(){const sr=44100,count=Math.ceil(duration*sr),samples=new Float32Array(count);demoTimes.forEach((n,k)=>{const from=Math.floor(n.time*sr),next=demoTimes[k+1]?.time??duration,to=Math.min(count,Math.floor(next*sr)),f=440*Math.pow(2,(n.midi-69)/12);for(let i=from;i<to;i++){const t=(i-from)/sr,attack=Math.min(1,t/.004),env=attack*Math.exp(-t*4.1),tone=Math.sin(2*Math.PI*f*t)*.58+Math.sin(4*Math.PI*f*t)*.25+Math.sin(6*Math.PI*f*t)*.11+Math.sin(8*Math.PI*f*t)*.045;samples[i]+=tone*env*.72}});const ab=new ArrayBuffer(44+count*2),v=new DataView(ab),write=(o,s)=>{for(let i=0;i<s.length;i++)v.setUint8(o+i,s.charCodeAt(i))};write(0,'RIFF');v.setUint32(4,36+count*2,true);write(8,'WAVE');write(12,'fmt ');v.setUint32(16,16,true);v.setUint16(20,1,true);v.setUint16(22,1,true);v.setUint32(24,sr,true);v.setUint32(28,sr*2,true);v.setUint16(32,2,true);v.setUint16(34,16,true);write(36,'data');v.setUint32(40,count*2,true);for(let i=0;i<count;i++)v.setInt16(44+i*2,Math.round(Math.max(-1,Math.min(1,samples[i]))*32767),true);return new Blob([ab],{type:'audio/wav'})}
-function makeDemo(){pause();window.songKey=null;waBufs={main:null,bass:null};curPos=0;lastPeaks=null;setBassSwitch(false);decoded=null;duration=16;notes=demoTimes.map(x=>({...x}));octaveApplied=0;loopStart=2;loopEnd=6;if(demoUrl)URL.revokeObjectURL(demoUrl);demoUrl=URL.createObjectURL(buildDemoWav());audio.src=demoUrl;audio.load();audio.currentTime=0;audio.preservesPitch=true;document.getElementById('trackName').innerHTML='Pocket groove <span>—</span> Lowline session';document.getElementById('trackSub').textContent='Demo bass · E standard tuning';document.getElementById('demoPill').style.display='';document.getElementById('playerSection').classList.add('visible');setWave(demoWave());autoRhythm();buildTab();seek(0);}
+function makeDemo(){pause();document.body.classList.add('has-song');window.songKey=null;waBufs={main:null,bass:null,rest:null};curPos=0;lastPeaks=null;setBassSwitch(false);decoded=null;duration=16;notes=demoTimes.map(x=>({...x}));octaveApplied=0;loopStart=2;loopEnd=6;if(demoUrl)URL.revokeObjectURL(demoUrl);demoUrl=URL.createObjectURL(buildDemoWav());audio.src=demoUrl;audio.load();audio.currentTime=0;audio.preservesPitch=true;document.getElementById('trackName').innerHTML='Pocket groove <span>—</span> Lowline session';document.getElementById('trackSub').textContent='Demo bass · E standard tuning';document.getElementById('demoPill').style.display='';document.getElementById('playerSection').classList.add('visible');setWave(demoWave());autoRhythm();buildTab();seek(0);}
 function toast(s){let t=document.getElementById('toast');t.textContent=s;t.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.classList.remove('show'),2600)}
 function updateAnalysis(pct,label){try{localStorage.setItem('lowlineRun',JSON.stringify({pct:Math.round(pct),label,t:Date.now(),dev:navigator.userAgent.slice(0,120),mem:navigator.deviceMemory||null,gpu:!!navigator.gpu}))}catch(e){}document.getElementById('analysisBar').style.width=`${pct}%`;document.getElementById('progressPct').textContent=`${Math.round(pct)}%`;document.getElementById('analysisText').textContent=label}
 async function analyze(file){
@@ -100,15 +113,17 @@ async function analyze(file){
       if(bass)updateAnalysis(70,'Bass already separated on this device');
       else{bass=await separateBass(L,R,(pct,label)=>updateAnalysis(pct,label));updateAnalysis(71,"Saving the separated bass on this device…");await saveBass(key,bass)}
       channels=[bass.left,bass.right];rate=44100;
-      bassUrl=URL.createObjectURL(wavBlob(channels,rate));
     }else{
       const ac=window.audioContext||(window.audioContext=new AC());buf=await ac.decodeAudioData(arr.slice(0));
       if(buf.duration>600)throw new Error('Please use a file shorter than ten minutes.');
       channels=[];for(let c=0;c<buf.numberOfChannels;c++)channels.push(buf.getChannelData(c));rate=buf.sampleRate;
     }
     decoded=full?null:buf;duration=buf.duration;curPos=0;stopWA();
-    waBufs.main=buf;waBufs.bass=null;if(full){const bb=getAC().createBuffer(2,channels[0].length,rate);bb.copyToChannel(channels[0],0);bb.copyToChannel(channels[1],1);waBufs.bass=bb}customDuration=duration;loopStart=duration*.2;loopEnd=Math.min(duration,loopStart+4);
-    hearBass=full;setSource();setBassSwitch(full);
+    waBufs.main=buf;waBufs.bass=null;waBufs.rest=null;
+    if(full){const ac=getAC(),n=channels[0].length,bb=ac.createBuffer(2,n,rate),rb=ac.createBuffer(2,n,rate);bb.copyToChannel(channels[0],0);bb.copyToChannel(channels[1],1);
+      for(let c=0;c<2;c++){const f=buf.getChannelData(Math.min(c,buf.numberOfChannels-1)),bs=channels[c],o=new Float32Array(n);for(let i=0;i<n;i++)o[i]=f[i]-bs[i];rb.copyToChannel(o,c)}
+      waBufs.bass=bb;waBufs.rest=rb}customDuration=duration;loopStart=duration*.2;loopEnd=Math.min(duration,loopStart+4);
+    hearBass=full;if(full){if(mixUrl)URL.revokeObjectURL(mixUrl);mixUrl=URL.createObjectURL(mixBlob());bassUrl=mixUrl}setSource();setBassSwitch(full);
     const a0=full?72:8;
     updateAnalysis(a0,'Listening for note attacks and pitch…');
     const result=await LowlineAnalysis.analyze(channels,rate,{onProgress:p=>updateAnalysis(Math.min(92,a0+(92-a0)*p/92),'Listening for note attacks and pitch…')});
@@ -124,7 +139,7 @@ async function analyze(file){
     document.getElementById('demoPill').style.display='none';
     lastPeaks=peaks;setWave(peaks);autoRhythm();const restored=window.LowlineEditor?await LowlineEditor.restore(songKey):false;buildTab();seek(0);updateAnalysis(100,'Analysis complete');try{localStorage.removeItem('lowlineRun')}catch(e){}
     sl.textContent=restored?`Your saved edits for this song were restored (${notes.length} notes). Edit → "Reset to detected" goes back to the analysis.`:`Found ${notes.length} notes. Click any number or mark to hear just that note.`;
-    document.getElementById('playerSection').classList.add('visible');progress.hidden=true;requestAnimationFrame(()=>setWave(lastPeaks));   // redraw once the player is visible (it has no width while hidden)
+    document.getElementById('playerSection').classList.add('visible');progress.hidden=true;document.body.classList.add('has-song');requestAnimationFrame(()=>setWave(lastPeaks));   // redraw once the player is visible (it has no width while hidden)
     document.getElementById('playerSection').scrollIntoView({behavior:'smooth',block:'nearest'});
   }catch(e){try{localStorage.removeItem('lowlineRun')}catch(_){}sl.textContent=e.message||'This file could not be analyzed. Try another MP3 or WAV.';progress.hidden=true;toast(e.message||'Could not analyze this file.')}
   finally{document.getElementById('dropzone').disabled=false;document.getElementById('demoBtn').disabled=false}
@@ -161,10 +176,10 @@ function playClip(t0,t1,i){
   if(!audio.src)return;
   clearTimeout(clipTimer);if(playing)pause();
   const start=Math.max(0,t0-0.02),stop=Math.max(t1+0.06,t0+0.25);
-  setPosition(start);if(i!=null)highlight(i);
-  if(useWA()){startWA(start,stop-start);const tick=()=>{if(!waSrc){syncTab(stop);setPosition(start);return}syncTab(nowTime());clipTimer=setTimeout(tick,15)};tick();return}
-  audio.playbackRate=speed;audio.preservesPitch=true;
-  audio.play().then(()=>{clipEnd=stop;const tick=()=>{if(clipEnd==null)return;syncTab(audio.currentTime);if(audio.currentTime>=clipEnd||audio.paused){audio.pause();clipEnd=null;return}clipTimer=setTimeout(tick,15)};tick()}).catch(()=>toast('Press play once so the browser allows sound.'));
+  setPosition(t0);if(i!=null)highlight(i);                         // the marker sits ON the clicked note (the clip starts 20 ms early)
+  if(useWA()){startWA(start,stop-start);const tick=()=>{if(!waSrc){setPosition(t0);if(i!=null)highlight(i);return}syncTab(nowTime());clipTimer=setTimeout(tick,15)};tick();return}
+  audio.playbackRate=speed;audio.preservesPitch=true;try{audio.currentTime=start}catch(e){}
+  audio.play().then(()=>{clipEnd=stop;const tick=()=>{if(clipEnd==null)return;syncTab(audio.currentTime);if(audio.currentTime>=clipEnd||audio.paused){audio.pause();clipEnd=null;setPosition(t0);if(i!=null)highlight(i);return}clipTimer=setTimeout(tick,15)};tick()}).catch(()=>toast('Press play once so the browser allows sound.'));
 }
 // ---- view & settings panel ----
 (()=>{const panel=document.getElementById('viewPanel'),fab=document.getElementById('viewFab'),close=document.getElementById('viewClose'),scrim=document.getElementById('viewScrim');
@@ -199,8 +214,10 @@ function wavBlob(ch,rate){const n=ch[0].length,b=new ArrayBuffer(44+n*2),v=new D
   const L=ch[0],R=ch[1]||ch[0];for(let i=0;i<n;i++){const x=Math.max(-1,Math.min(1,(L[i]+R[i])*0.5));v.setInt16(44+i*2,x*32767,true)}return new Blob([b],{type:'audio/wav'})}
 function setSource(){const t=nowTime()||0,was=playing;if(was)pause();curPos=t;audio.src=hearBass&&bassUrl?bassUrl:objectUrl;audio.load();audio.preservesPitch=true;
   const go=()=>{try{audio.currentTime=t}catch(e){}if(was)play()};if(audio.readyState>=1)go();else audio.addEventListener('loadedmetadata',go,{once:true})}
-function setBassSwitch(show){const sw=document.getElementById('mixSwitch');sw.hidden=!show;sw.querySelectorAll('button').forEach(b=>b.setAttribute('aria-pressed',(b.dataset.mix==='bass')===hearBass))}
-document.querySelectorAll('[data-mix]').forEach(b=>b.onclick=()=>{hearBass=b.dataset.mix==='bass';setBassSwitch(true);setSource()});
+function setBassSwitch(show){document.getElementById('mixSwitch').hidden=!show}
+[['mixBass','bass'],['mixBand','band']].forEach(([id,k])=>{const el=document.getElementById(id);el.value=Math.round(mixVol[k]*100);
+  el.oninput=()=>{mixVol[k]=el.value/100;try{localStorage.setItem('lowline.'+(k==='bass'?'mixBass':'mixBand'),el.value)}catch(e){}if(mixNodes[k])mixNodes[k].gain.value=mixVol[k]};
+  el.onchange=()=>{if(waBufs.rest)refreshMixUrl()}});
 
 // ---- if the page died in the middle of a song last time, say where (usually: out of memory on this device) ----
 (()=>{let r=null;try{r=JSON.parse(localStorage.getItem('lowlineRun')||'null');localStorage.removeItem('lowlineRun')}catch(e){}
@@ -229,3 +246,6 @@ async function saveBass(key,b){try{const i16=a=>{const o=new Int16Array(a.length
   const all=await new Promise(r=>{const q=st.getAllKeys();q.onsuccess=()=>r(q.result);q.onerror=()=>r([])});
   const t=d.transaction('songs','readwrite'),os=t.objectStore('songs');if(all.length>=8)os.delete(all[0]);   // keep the last 8 songs (~40 MB each)
   os.put({v:1,n:b.left.length,l:i16(b.left),r:i16(b.right),t:Date.now()},key);await new Promise(r=>{t.oncomplete=r;t.onerror=r;t.onabort=r})}catch(e){console.warn("bass not saved",e)}}
+
+// once a song is open the big header and drop area step aside; '+ New song' brings them back
+document.getElementById('newSongBtn').onclick=()=>{document.body.classList.remove('has-song');window.scrollTo({top:0,behavior:'smooth'})};

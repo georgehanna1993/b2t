@@ -72,7 +72,8 @@ Full songs (Nov 2026): "Full song" mode separates the bass in the browser with H
 (`separate-worker.js` + `vendor/demucs.js` (bakkot/demucs-js, MIT, bass-only overlap-add) + `vendor/ort` (onnxruntime-web 1.22)
 + `models/htdemucs_w16.onnx` (weights stored fp16, cast to fp32 on load: 90.5 MB, output = full model, 84 dB SNR)). Model is cached
 with the Cache API. WebGPU first, else multi-threaded WASM (needs cross-origin isolation: `coi-serviceworker.js`). `?cpu=1` forces WASM.
-Player gets a Bass only / Full mix switch. Memory: the model needs ~3 GB of browser RAM on the CPU path regardless of
+Player gets two volume sliders, Bass and Band (waBufs.rest = full mix minus separated bass, exact to 1e-7): at 100 % two
+synced Web Audio sources with their own gains; slowed speeds play a rendered mix WAV (rebuilt when a slider is released). Memory: the model needs ~3 GB of browser RAM on the CPU path regardless of
 song length or threads (measured). Owner's laptop (Dynabook, Intel Gen12 iGPU, 31 GB, Chrome 156) restarts the page mid-run, most
 likely a GPU timeout on the iGPU (chrome applies exit_on_context_lost there). If a run dies during '(GPU)' separation, that browser
 switches to CPU automatically (localStorage lowlineGpuCrashed); View & settings -> Separation: Auto / GPU / CPU. WEIGHTS ARE META'S, PERSONAL/RESEARCH USE ONLY (models/README.txt).
@@ -93,10 +94,16 @@ stems, bar numbers, note names, fingers, legend, page numbers, A4/Letter, portra
 Ool Tani Keda: 21 raster pages -> 3 vector pages, ~40 ms, 91 KB (7 pages / 203 KB with notation).
 Separation speed: overlap 0.25 -> 0.1 (CT full: 208 s -> 146 s CLI, notes 62.4% -> 63.1%, precision 79.9% -> 80.9%).
 Separated songs are saved in IndexedDB 'lowline-bass' (Int16, key name|size|lastModified, last 8): reopening is instant (0.6 s).
-Repeats: after an edit, the note's neighbourhood (3 notes each side: pitches + gaps within 30%) is searched in the whole song;
+Fingering: a user's lock now always wins over repeated-phrase consistency (fingering_test #12; the riff's 'String & fret'
+change did nothing). Notes with one possible position show it as text ('only place'). Edit mode: drag a note up/down = other string.
+Clicking a note puts the marker ON it (the clip starts 20 ms early, the marker used to land on the previous note).
+Repeats: matches also need the same beat position (n.q.pos); the box lists the bars and stays until Apply / No / an edit of another
+note; edits to the same note are merged into one change. After an edit, the note's neighbourhood (3 notes each side: pitches + gaps within 30%) is searched in the whole song;
 'Apply this change to all N' copies the change (fields diff + time shift, or delete, or add at the same offset) in one undo step.
 Ool Tani Keda: one edit in the riff -> 29 matches. 'Next unsure ▶' (U / Shift+U) walks notes with confidence < 0.75 not yet edited.
 Tap tempo (practice bar): median of >= 4 taps; if all taps happen while playing, the first tap is beat 1 (sets origin too).
+Less on screen: once a song is open the hero/drop area hides ('+ New song' in the header brings it back); the practice bar shows
+↺, Loop, Click, Speed and '⋯ More' (Count-in, Tap tempo, Hear tab).
 Practice bar (`practice.js`, Nov 2026): Loop bars (mouse drag across the tab, or press the button and tap first + last bar;
 taps on notes count while choosing), metronome Click (accent on beat 1) and Count-in (one bar), Speed slider 40-100 %, Hear tab
 (synth bass of the current notes: off / with the song / tab only = recording muted via `recGain` + audio.muted). Clicks and synth

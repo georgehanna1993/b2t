@@ -68,5 +68,13 @@ const span = ns => { const f = ns.filter(n => n.fret > 0).map(n => n.fret); retu
   const x = n[1], endF = x.slideTo - E[x.string];
   ok(!x.unplayable && x.slideCut === true && E[x.string] + x.fret === 52, `over-long slide: s${x.string}f${x.fret} end ${endF} cut=${x.slideCut} unplayable=${x.unplayable}`); }
 
+// 12. a user's string choice (lock) inside a REPEATED phrase must win over making the repeats identical
+//     (owner: changing string & fret in Ool Tani Keda's riff did nothing)
+{ const riff = [39, 41, 39, 36], m = []; for (let r = 0; r < 4; r++) m.push(...riff);
+  const n = mk(m); const plain = mk(m); F.assign(plain, E);
+  const i = 4, want = plain[i].string === 0 ? { s: 1, f: 39 - 33 } : { s: 0, f: 39 - 28 };   // the other position of D#2
+  F.assign(n, E, { locks: { [i]: want } });
+  ok(n[i].string === want.s && n[i].fret === want.f, `locked note in a repeated riff: got s${n[i].string}f${n[i].fret}, wanted s${want.s}f${want.f}`); }
+
 console.log(`${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

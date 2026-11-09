@@ -202,6 +202,7 @@
     const itemOfNote = new Map(); items.forEach((it, k) => itemOfNote.set(it.i, k));
     const locks = new Map();
     if (opts.locks) Object.keys(opts.locks).forEach(i => { const k = itemOfNote.get(+i); if (k != null) locks.set(k, opts.locks[i]); });
+    const userK = new Set(locks.keys());                    // the user's own choices: repeated-phrase consistency never overrides them
 
     let best = solve(items, locks);
     const info = { groups: 0, repeated: 0, cost0: best.cost };
@@ -223,7 +224,7 @@
       let bestSol = null, bestTrial = null, bestV = null;
       Array.from(seen.values()).slice(0, CFG.maxVariants).forEach(v => {
         const trial = new Map(locks);
-        occ.forEach(s => v.forEach(x => { const k2 = itemOfNote.get(s + x.off); if (k2 != null) trial.set(k2, { s: x.s, f: x.f }); }));
+        occ.forEach(s => v.forEach(x => { const k2 = itemOfNote.get(s + x.off); if (k2 != null && !userK.has(k2)) trial.set(k2, { s: x.s, f: x.f }); }));
         const sol = solve(items, trial);
         if (!bestSol || sol.cost < bestSol.cost) { bestSol = sol; bestTrial = trial; bestV = v; }
       });
@@ -241,7 +242,7 @@
           if (m > bestM) { bestM = m; bestJ = j; }
         }
         if (bestM >= CFG.minMotif) {
-          for (let t = 0; t < bestM; t++) { const k2 = itemOfNote.get(i + t), x = byOff.get(bestJ + t); if (k2 != null && x) locks.set(k2, { s: x.s, f: x.f }); claimed[i + t] = true; }
+          for (let t = 0; t < bestM; t++) { const k2 = itemOfNote.get(i + t), x = byOff.get(bestJ + t); if (k2 != null && x && !userK.has(k2)) locks.set(k2, { s: x.s, f: x.f }); claimed[i + t] = true; }
           info.repeated++;
           i += bestM - 1;
         }

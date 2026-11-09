@@ -69,27 +69,32 @@
     }
     return true;
   }
-  const findAll = (sig, skip) => { const r = []; for (let i = 0; i < notes.length; i++) if (!skip(notes[i]) && matchAt(sig, i)) r.push(notes[i]); return r; };
+  // a repeat = same pitches and gaps 3 notes each side AND the same place in the bar (beat position)
+  const findAll = (sig, skip, pos) => { const r = []; for (let i = 0; i < notes.length; i++) if (!skip(notes[i]) && (pos == null || beatPos(notes[i]) === pos) && matchAt(sig, i)) r.push(notes[i]); return r; };
+  const beatPos = n => (n && n.q ? n.q.pos : null);
   function recordEdit() {
-    const u = undo[undo.length - 1], kind = pendingKind; pendingKind = 'mod'; lastEdit = null;
-    if (!u || kind === 'none') return;
+    const u = undo[undo.length - 1], kind = pendingKind; pendingKind = 'mod';
+    if (!u || kind === 'none') { lastEdit = null; return; }
     const pre = u.notes;
     if (kind === 'mod' && sel && u.sel >= 0) {
-      const p = pre[u.sel], diff = {};
+      // editing the same note again keeps the first "before" state, so the whole change goes to the repeats
+      const base = lastEdit && lastEdit.kind === 'mod' && lastEdit.note === sel ? lastEdit.base : { p: pre[u.sel], sig: sigAt(pre, u.sel), pos: beatPos(pre[u.sel]) };
+      const p = base.p, diff = {};
       DIFF.forEach(k => { if (JSON.stringify(p[k]) !== JSON.stringify(sel[k])) diff[k] = sel[k] === undefined ? undefined : JSON.parse(JSON.stringify(sel[k])); });
-      const dt = sel.time - p.time; if (!Object.keys(diff).length && Math.abs(dt) < 1e-6) return;
-      const targets = findAll(sigAt(pre, u.sel), q => q === sel);
-      if (targets.length) lastEdit = { kind, diff, dt, targets };
+      const dt = sel.time - p.time;
+      if (!Object.keys(diff).length && Math.abs(dt) < 1e-6) { lastEdit = null; return; }
+      const targets = findAll(base.sig, q => q === sel, base.pos);
+      lastEdit = targets.length ? { kind, diff, dt, targets, note: sel, base } : null;
     } else if (kind === 'del' && u.sel >= 0) {
-      const targets = findAll(sigAt(pre, u.sel), () => false);
-      if (targets.length) lastEdit = { kind, targets };
+      const targets = findAll(sigAt(pre, u.sel), () => false, beatPos(pre[u.sel]));
+      lastEdit = targets.length ? { kind, targets } : null;
     } else if (kind === 'add' && sel) {
       let a = -1; pre.forEach((q, i) => { if (q.time <= sel.time + 1e-6) a = i; });
-      if (a < 0) return;
-      const at = pre[a].time, targets = findAll(sigAt(pre, a), q => Math.abs(q.time - at) < 1e-6);
+      if (a < 0) { lastEdit = null; return; }
+      const at = pre[a].time, targets = findAll(sigAt(pre, a), q => Math.abs(q.time - at) < 1e-6, beatPos(pre[a]));
       const tpl = {}; KEEP.forEach(k => { if (sel[k] !== undefined) tpl[k] = JSON.parse(JSON.stringify(sel[k])); });
-      if (targets.length) lastEdit = { kind, targets, offset: sel.time - at, tpl };
-    }
+      lastEdit = targets.length ? { kind, targets, offset: sel.time - at, tpl } : null;
+    } else lastEdit = null;
   }
   function applyAll() {
     const e = lastEdit; if (!e) return; snapshot(); pendingKind = 'none';
@@ -142,7 +147,8 @@
     if (!editMode) { box.hidden = true; return; }
     box.hidden = false;
     const nU = unsure().length;
-    const rep = lastEdit ? `<div class="ed-repeat">↻ The same spot repeats <b>${lastEdit.targets.length}</b> more time${lastEdit.targets.length > 1 ? 's' : ''} in this song. <button data-op="applyAll">Apply this change to all ${lastEdit.targets.length}</button><button data-op="dismissRepeat">No, only here</button></div>` : '';
+    const barsOf = e => { const b = [...new Set(e.targets.map(t => t.q ? t.q.bar + 1 : null).filter(x => x))]; return b.length ? ` (bar${b.length > 1 ? 's' : ''} ${b.slice(0, 12).join(', ')}${b.length > 12 ? ', …' : ''})` : ''; };
+    const rep = lastEdit ? `<div class="ed-repeat">↻ The same spot appears <b>${lastEdit.targets.length}</b> more time${lastEdit.targets.length > 1 ? 's' : ''}${barsOf(lastEdit)}. <button data-op="applyAll">Apply this change to all ${lastEdit.targets.length}</button><button data-op="dismissRepeat">No, only here</button></div>` : '';
     const tools = `<span class="ed-actions"><button data-op="prevUnsure" title="Previous unsure note (Shift+U)"${nU ? '' : ' disabled'}>◀ ?</button><button data-op="nextUnsure" title="Next unsure note (U)"${nU ? '' : ' disabled'}>Next unsure ▶ <small>${nU}</small></button><button data-op="add">+ Add note</button><button data-op="undo">↶ Undo</button><button data-op="reset" id="resetEdits"${hasSaved() ? '' : ' hidden'} title="Throw away your edits for this song">Reset to detected</button></span>`;
     if (!sel || notes.indexOf(sel) < 0) { box.innerHTML = `${rep}<p class="ed-hint">Click a note to edit it, jump to the notes the app is unsure about, or add one at the playhead.</p>${tools}`; wire(); return; }
     const n = sel, len = Math.max(1, Math.round(n.dur / p16())), tech = techOf(n), pos = n.mute ? [] : positions(n.midi);
@@ -150,7 +156,7 @@
     box.innerHTML = `${rep}
       <div class="ed-field"><label>Note</label><span class="row"><button data-op="pitch" data-v="-1" title="Down a semitone (↓)">−</button>
         <select data-op="note" ${n.mute ? 'disabled' : ''}>${noteOptions(n.midi)}</select><button data-op="pitch" data-v="1" title="Up a semitone (↑)">+</button></span></div>
-      <div class="ed-field"><label>String &amp; fret</label><select data-op="pos" ${n.mute ? 'disabled' : ''}>${pos.map(p => opt(`${p.s}:${p.f}`, `${stringNames()[p.s]} string · fret ${p.f}${p.up ? ' (8va)' : ''}`, curPosKey)).join('')}</select></div>
+      <div class="ed-field"><label>String &amp; fret</label>${pos.length === 1 ? `<output title="The only place this note exists on this bass (drag it up/down: not possible)">${stringNames()[pos[0].s]} string · fret ${pos[0].f}${pos[0].up ? ' (8va)' : ''} · only place</output>` : `<select data-op="pos" ${n.mute ? 'disabled' : ''}>${pos.map(p => opt(`${p.s}:${p.f}`, `${stringNames()[p.s]} string · fret ${p.f}${p.up ? ' (8va)' : ''}`, curPosKey)).join('')}</select>`}</div>
       <div class="ed-field"><label>Starts at</label><span class="row"><button data-op="time" data-v="-1" title="One 16th earlier (←)">◀</button><output>${fmt(n.time)}.${String(Math.floor((n.time % 1) * 100)).padStart(2, '0')}</output><button data-op="time" data-v="1" title="One 16th later (→)">▶</button></span></div>
       <div class="ed-field"><label>Length</label><select data-op="len">${LENS.map(([u, l]) => opt(u, l, LENS.some(x => x[0] === len) ? len : 2)).join('')}</select></div>
       <div class="ed-field"><label>Technique</label><select data-op="tech">${TECH.map(([v, l]) => opt(v, l, tech)).join('')}</select></div>
@@ -239,6 +245,27 @@
   window.addEventListener('pagehide', () => { if (dirty) saveNow(); });
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden' && dirty) saveNow(); });
 
+  // drag a note up / down in edit mode = the same note on another string
+  (() => {
+    let d = null;
+    $('tabScroll').addEventListener('pointerdown', e => {
+      const el = e.target.closest('.tab-note'); if (!editMode || !el || el.classList.contains('slide-end') || e.button !== 0) return;
+      d = { el, i: +el.dataset.index, y: e.clientY, moved: false };
+    });
+    window.addEventListener('pointermove', e => {
+      if (!d) return; const dy = e.clientY - d.y; if (!d.moved && Math.abs(dy) < 8) return;
+      d.moved = true; d.el.style.transform = `translate(-50%, calc(-50% + ${dy}px))`; d.el.classList.add('dragging');
+    });
+    window.addEventListener('pointerup', e => {
+      if (!d) return; const { el, i, moved } = d, dy = e.clientY - d.y; d = null;
+      el.style.transform = ''; el.classList.remove('dragging'); if (!moved) return;
+      const n = notes[i]; if (!n || n.mute || n.string == null) return;
+      const steps = Math.round(-dy / LowlineTabView.L.GAP); if (!steps) return;
+      const target = n.string + steps, p = positions(n.midi).find(q => q.s === target);
+      if (!p) return toast(`${nameOf(n.midi)} can't be played on the ${stringNames()[target] || 'that'} string.`);
+      select(n); ops.pos(`${p.s}:${p.f}`);
+    });
+  })();
   function setMode(on) {
     editMode = on; document.body.classList.toggle('editing', on);
     $('editBtn').setAttribute('aria-pressed', on); $('editBtn').textContent = on ? '✓ Done' : '✎ Edit';

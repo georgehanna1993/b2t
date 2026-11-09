@@ -206,3 +206,22 @@ footer{height:64px;display:flex;align-items:center;justify-content:space-between
 .ed-repeat button:first-of-type{background:var(--tomato)!important;color:var(--cream)}
 .ed-actions small{font-family:var(--mono);background:var(--tomato);color:var(--cream);border-radius:99px;padding:0 6px;margin-left:4px}
 .edit-bar button:disabled{opacity:.45;cursor:default}
+.tab-note.dragging{z-index:9;cursor:grabbing;box-shadow:0 0 0 3px var(--tomato)!important}
+.editing .tab-note.selected{cursor:grab}
+.mixer{display:flex;flex-direction:column;gap:4px;margin-left:auto}
+.mixer[hidden]{display:none}
+.mixer label{display:flex;align-items:center;gap:8px;font:13px var(--display);letter-spacing:.06em;text-transform:uppercase;color:var(--green);justify-content:flex-end}
+.mixer input{width:150px;accent-color:var(--tomato)}
+@media(max-width:820px){.mixer input{width:110px}}
+/* less on screen once a song is open */
+.has-song .hero{display:none}
+.has-song #newSongBtn{display:inline-flex}
+.new-song{display:none;border:2px solid var(--cream);background:transparent;color:var(--cream);border-radius:99px;padding:6px 14px;font-weight:700;cursor:pointer;margin-right:18px}
+.new-song:hover{background:var(--cream);color:var(--green)}
+.has-song .practice{margin-top:8px}
+.has-song .fine-print{display:none}
+.pb-icon{font-size:18px;padding:4px 12px!important}
+.pb-more{margin-left:auto}
+.pb-extra{flex:1 1 100%;display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px;padding-top:8px;border-top:2px solid #0f3d2e1a}
+.pb-extra[hidden]{display:none}
+.has-song .masthead nav a[href="#upload"]{display:none}

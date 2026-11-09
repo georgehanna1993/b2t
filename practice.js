@@ -202,6 +202,9 @@
     syncRhythmControls(); buildTab(); if (window.LowlineEditor && window.songKey) LowlineEditor.saveSoon();
     $('tapBtn').textContent = `♩ = ${bpm} · tap`;
   };
+  // '⋯ More' keeps the rarely used tools out of sight
+  $('moreBtn').onclick = () => { const p = $('pbMore'), open = p.hidden; p.hidden = !open; $('moreBtn').setAttribute('aria-expanded', open); };
+  if (countIn || tabMode !== 'off') { $('pbMore').hidden = false; $('moreBtn').setAttribute('aria-expanded', true); }
   applyMix();
   window.LowlinePractice = { setLoop, clearLoop, get loopBars() { return loopBars; }, get state() { return { clickOn, countIn, tabMode, scheduled: live.length }; } };
 })();
