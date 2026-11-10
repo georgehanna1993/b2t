@@ -17,6 +17,7 @@
 //  8. one-semitone legato step measured 0.9-0.95 semitones edge-to-edge: notes merged (Ool Tani Keda 0:39)
 //  9. same-note re-pluck visible only as a 2-5 frame pitch dropout + small rise: merged (Ool Tani Keda 0:51, 0:57).
 //     Tested on the real frames (no synthetic reproduction: a synthetic gap deep enough also trips the onset test)
+// 10. fast same-note re-plucks (gallops): found from short pitch-confidence dips + a small energy rise (The Trooper)
 //  4. F#1 -> B1 hammer-on where the pitch sags just before the jump and the tracker drops out for a few
 //     frames during it: the F#1 vanished into the B1
 const A = require('../analysis.js');
@@ -124,6 +125,17 @@ const fr = a => a.map((m, i) => ({ t: i * 0.0107, m: m === null ? NaN : m, c: m 
   check(has && A.dropoutReplucks(fr(f), () => 1.0, 0).length === 0, 'same dropout with no energy rise is not a re-pluck', 'fired');
   const g = f.map((m, i) => (m !== null && i > 34 ? m + 2 : m));  // different pitch after the gap: that is a note change, not this rule
   check(has && A.dropoutReplucks(fr(g), () => 4.6, 0).length === 0, 'dropout into a different pitch is left to the jump logic', 'fired');
+}
+{ // 10: fast same-note re-plucks (The Trooper's gallop, separated stem 15.64-16.22 s): pitch steady at E2, confidence dips
+  // 0.83 / 0.86 at the two re-plucks. Found nothing before (both merged into one long E2).
+  const m = [40,40,40,40,40,40,40,40,40,40,40,40,40,40,40,40,40,40,40,40,40,40,40.1,40.3,40.4,40.3,40.1,40,40,40,40,40,40,40,40,40,40,40.2,40.3,40.3,40.1,40,40,40,40,40,40];
+  const cs = [.99,1,1,.99,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,.97,.89,.83,.83,.92,.96,.99,.99,.99,1,.99,.99,.99,1,.99,.96,.94,.86,.87,.89,.95,.98,.99,1,.99];
+  const fr2 = m.map((v, i) => ({ t: 15.64 + i * 0.0116, m: v, c: cs[i] }));
+  const has = typeof A.confDipReplucks === 'function', hit = has ? A.confDipReplucks(fr2, () => 4) : [];
+  check(hit.length === 2 && Math.abs(hit[0] - 15.92) < 0.03 && Math.abs(hit[1] - 16.08) < 0.04, 'gallop re-plucks found from pitch-confidence dips', has ? hit.map(t => t.toFixed(2)).join(' ') : 'no confDipReplucks()');
+  check(has && A.confDipReplucks(fr2, () => 0.5).length === 0, 'same dips without an energy rise are not re-plucks', 'fired');
+  const steady = m.map((v, i) => ({ t: i * 0.0116, m: 40 + 0.3 * Math.sin(i * 0.8), c: 0.97 + 0.02 * Math.sin(i) }));
+  check(has && A.confDipReplucks(steady, () => 4).length === 0, 'a steady (vibrato) note has no confidence dips', 'fired');
 }
 (async () => {
   for (const c of cases) {

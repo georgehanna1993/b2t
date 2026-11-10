@@ -38,7 +38,10 @@
     glideMinSemis: 1.0,
     stepMinSemis: 0.8,   // a pitch step between two steady stretches (each within stepFlatSemis) this big is a new note
     stepFlatSemis: 0.35,
-    dropRepluckRiseDb: 2.5, // a mid-note pitch dropout followed by the same pitch is a re-pluck if the energy rises this much  // net change needed to call it a glide or jump (vibrato stays below this)
+    dropRepluckRiseDb: 2.5,
+    confDipMax: 0.87,    // re-pluck inside a steady note: pitch confidence dips to <= this (from >= 0.95)...
+    confDipRiseDb: 2,    // ...with an energy rise of at least this much (tuned on 9 songs: found 69.9 -> 71.4 %)
+    fastMinGapMs: 70, // a mid-note pitch dropout followed by the same pitch is a re-pluck if the energy rises this much  // net change needed to call it a glide or jump (vibrato stays below this)
     jumpMaxFrames: 5,    // a pitch change spread over <= this many frames (~58 ms) is a jump, longer is a glide
     hammerMaxSemis: 5,   // bigger leaps without a new attack are re-plucks, not hammer-ons/pull-offs
     kickMaxMidi: 35,     // kick-drum bleed lives down here (< ~62 Hz) and snaps back up
@@ -169,6 +172,24 @@
   // again, the SAME pitch continues after it, and the energy rises a little (separated stems smooth the attack: Ool Tani
   // Keda 0:51 / 0:57, D#1 plucked twice; rises measured 3.6-11 dB; never fired on PTFM, the Nov stem or the Arabic stem).
   // Returns the re-pluck times. rise(t) = biggest short-term energy rise near t (dB).
+  // re-plucks seen as a short dip of pitch confidence inside a steady note (see analyze); returns the times
+  function confDipReplucks(fr, rise) {
+    const out = []; let last = -1e9;
+    for (let q = 6; q < fr.length - 6; q++) {
+      const c = fr[q].c; if (isNaN(fr[q].m) && c > 0) continue;
+      let isMin = true; for (let k = -2; k <= 2; k++) if (k && fr[q + k].c < c) isMin = false; if (!isMin) continue;
+      const pre = fr.slice(q - 6, q - 1), post = fr.slice(q + 2, q + 7);
+      const pc = Math.max(...pre.map(z => z.c)), qc = Math.max(...post.map(z => z.c));
+      if (!(pc >= 0.95 && qc >= 0.9 && c <= Math.min(CFG.confDipMax, pc - 0.08))) continue;
+      const pm = median(pre.filter(z => !isNaN(z.m)).map(z => z.m)), qm = median(post.filter(z => !isNaN(z.m)).map(z => z.m));
+      if (!(Math.abs(pm - qm) < 0.4) || (!isNaN(fr[q].m) && Math.abs(fr[q].m - pm) > 0.8)) continue;
+      const t = fr[q].t - 0.012;
+      if (t - last < CFG.fastMinGapMs / 1000) continue;
+      if (CFG.confDipRiseDb > 0 && rise(t) < CFG.confDipRiseDb) continue;
+      out.push(t); last = t;
+    }
+    return out;
+  }
   function dropoutReplucks(fr, rise, lead) {
     const out = [];
     for (let q = 0; q < fr.length; q++) {
@@ -530,7 +551,7 @@
         fr = pitchFrames(bS + 2, Math.max(bS + 2, endB - 1), Math.min(x.length, nextB * HOP + 192), tailRms);
         voiced = fr.filter(q => !isNaN(q.m)).length;
       }
-      if (dbg) dbg.frames.push(...fr.map(q => [+q.t.toFixed(3), +q.m.toFixed(2)]));
+      if (dbg) dbg.frames.push(...fr.map(q => [+q.t.toFixed(3), +q.m.toFixed(2), +q.c.toFixed(2)]));
       if (voiced < 1) {
         const ms = L * HOP / srD * 1000;
         if ((ms <= CFG.muteMaxMs && on.od >= 8 && segPeak >= peakDb - CFG.muteMinRelDb)) notes.push({ time: tOn, mf: NaN, midi: null, dur: Math.max(0.05, Math.min(L * HOP / srD, CFG.muteMaxMs / 1000)), confidence: 0.45, technique: 'muted', mute: true, feat });
@@ -559,6 +580,17 @@
         if (p.slideToF === null && detectVibrato(fr.slice(p.startIdx, p.endIdx + 1).map(q => q.m), srD / HOP)) note.vibrato = true;
         notes.push(note);
       });
+      // fast same-note re-plucks (gallops, fast 16ths): the pick noise briefly breaks the string's periodicity, so the pitch
+      // confidence dips for 1-4 frames while the SAME pitch rings on before and after (The Trooper: 0.63-0.89 dips between 0.99s)
+      if (CFG.confDipMax > 0) {
+        confDipReplucks(fr, energyRise).forEach(t => {
+          const h = notes.slice(before).filter(nn => !nn.mute && nn.slideToF == null && nn.technique !== 'slide' && t > nn.time + CFG.fastMinGapMs / 1000 && t < nn.time + nn.dur - 0.03).pop();
+          if (!h) return;
+          const e = h.time + h.dur; h.dur = t - h.time;
+          notes.push({ level: h.level, time: t, mf: h.mf, midi: null, dur: e - t, confidence: h.confidence * 0.9, technique: null, feat: null, inner: true, repluck: true });
+          notes.sort((u, v) => u.time - v.time);
+        });
+      }
       // same-note re-pluck seen only as a pitch dropout (see dropoutReplucks)
       dropoutReplucks(fr, energyRise, W / 2 / srD * 0.5).forEach(tG => {
         const host = notes.slice(before).find(nn => !nn.mute && tG > nn.time + 0.1 && tG < nn.time + nn.dur - 0.06 && nn.slideToF == null);
@@ -639,6 +671,6 @@
     return { notes: kept, debug: { peakDb, floorDb, onsets: onsets.length, tuneOffset: tune, srD, trace: dbg } };
   }
 
-  const api = { CFG, analyze, buildPieces, dropoutReplucks, prepare, median, detectVibrato };
+  const api = { CFG, analyze, buildPieces, dropoutReplucks, confDipReplucks, prepare, median, detectVibrato };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.LowlineAnalysis = api;
 })(typeof window !== 'undefined' ? window : globalThis);
