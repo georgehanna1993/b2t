@@ -131,6 +131,7 @@
       b.style.left = x + 'px'; b.style.top = y + 'px';
       b.textContent = labelOf(e, n);
       b.dataset.index = i;
+      if (e.kind === 'tie') b.dataset.tieAt = (rh.origin + e.u * 15 / rh.bpm).toFixed(4);   // where the held part starts (the editor can split there)
       const tech = [];
       if (n.technique === 'legato') tech.push('hammer-on/pull-off');
       if (n.slideTo != null) tech.push((n.slideCut ? 'slides off toward ' : 'legato slide to ') + midiName(n.slideTo) + (n.slideCut ? ' (too far for one string)' : ''));

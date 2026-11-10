@@ -153,7 +153,8 @@
     if (!sel || notes.indexOf(sel) < 0) { box.innerHTML = `${rep}<p class="ed-hint">Click a note to edit it, jump to the notes the app is unsure about, or add one at the playhead.</p>${tools}`; wire(); return; }
     const n = sel, len = Math.max(1, Math.round(n.dur / p16())), tech = techOf(n), pos = n.mute ? [] : positions(n.midi);
     const curPosKey = n.string != null ? `${n.string}:${n.fret}` : '';
-    box.innerHTML = `${rep}
+    const tieBox = tieAt != null && sel && tieAt > sel.time && tieAt < sel.time + sel.dur ? `<div class="ed-repeat ed-tie">This <b>(${sel.fret})</b> is the same note held on (a tie), not a new pluck. If a different note is played here, <button data-op="split">Split here into its own note</button></div>` : '';
+    box.innerHTML = `${rep}${tieBox}
       <div class="ed-field"><label>Note</label><span class="row"><button data-op="pitch" data-v="-1" title="Down a semitone (↓)">−</button>
         <select data-op="note" ${n.mute ? 'disabled' : ''}>${noteOptions(n.midi)}</select><button data-op="pitch" data-v="1" title="Up a semitone (↑)">+</button></span></div>
       <div class="ed-field"><label>String &amp; fret</label>${pos.length === 1 ? `<output title="The only place this note exists on this bass (drag it up/down: not possible)">${stringNames()[pos[0].s]} string · fret ${pos[0].f}${pos[0].up ? ' (8va)' : ''} · only place</output>` : `<select data-op="pos" ${n.mute ? 'disabled' : ''}>${pos.map(p => opt(`${p.s}:${p.f}`, `${stringNames()[p.s]} string · fret ${p.f}${p.up ? ' (8va)' : ''}`, curPosKey)).join('')}</select>`}</div>
@@ -207,6 +208,7 @@
     },
     undo() { const u = undo.pop(); if (!u) return toast('Nothing to undo.'); pendingKind = 'none'; notes = u.notes; sel = notes[u.sel] || null; changed(false); },
     reset() { resetEdits(); },
+    split() { if (tieAt != null) splitAt(tieAt); },
     applyAll() { applyAll(); },
     dismissRepeat() { lastEdit = null; panel(); },
     nextUnsure() { nextUnsure(1); },
@@ -266,6 +268,22 @@
       select(n); ops.pos(`${p.s}:${p.f}`);
     });
   })();
+  // a '(4)' is the second half of ONE held note (a tie). Clicking it in edit mode offers to split the note there,
+  // so the held part becomes a note of its own (the analysis missed a pluck: e.g. '4 (4)' should be '4 6')
+  let tieAt = null;
+  $('tabScroll').addEventListener('click', e => {
+    const el = e.target.closest('.tab-note'); if (!editMode || !el) return;
+    tieAt = el.classList.contains('tied') && el.dataset.tieAt ? +el.dataset.tieAt : null; panel();
+  }, true);
+  function splitAt(t) {
+    const n = sel; if (!n || t <= n.time + 0.02 || t >= n.time + n.dur - 0.02) return toast('Nothing to split here.');
+    snapshot(); pendingKind = 'add';
+    const end = n.time + n.dur, m = Object.assign({}, n, { time: t, dur: end - t, edited: true, added: true, confidence: 1, technique: null });
+    delete m.lock; delete m.slideTo; delete m.slideToF; delete m.slideIn; delete m.vibrato;
+    n.dur = t - n.time; delete n.slideOut;
+    notes.push(m); notes.sort((a, b) => a.time - b.time); sel = m; tieAt = null; changed(true);
+    toast('Split. Now set the new note (e.g. its fret).');
+  }
   function setMode(on) {
     editMode = on; document.body.classList.toggle('editing', on);
     $('editBtn').setAttribute('aria-pressed', on); $('editBtn').textContent = on ? '✓ Done' : '✎ Edit';

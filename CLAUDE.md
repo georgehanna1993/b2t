@@ -97,6 +97,8 @@ Separated songs are saved in IndexedDB 'lowline-bass' (Int16, key name|size|last
 Fingering: a user's lock now always wins over repeated-phrase consistency (fingering_test #12; the riff's 'String & fret'
 change did nothing). Notes with one possible position show it as text ('only place'). Edit mode: drag a note up/down = other string.
 Clicking a note puts the marker ON it (the clip starts 20 ms early, the marker used to land on the previous note).
+Ties: a '(4)' is the held second half of ONE note (rhythm split it at a beat/bar), so editing it edits both. Tie buttons carry
+data-tie-at; clicking one in edit mode offers 'Split here into its own note' (owner: '4 (4)' should have been '4 6').
 Repeats: matches also need the same beat position (n.q.pos); the box lists the bars and stays until Apply / No / an edit of another
 note; edits to the same note are merged into one change. After an edit, the note's neighbourhood (3 notes each side: pitches + gaps within 30%) is searched in the whole song;
 'Apply this change to all N' copies the change (fields diff + time shift, or delete, or add at the same offset) in one undo step.
