@@ -18,6 +18,7 @@
 //  9. same-note re-pluck visible only as a 2-5 frame pitch dropout + small rise: merged (Ool Tani Keda 0:51, 0:57).
 //     Tested on the real frames (no synthetic reproduction: a synthetic gap deep enough also trips the onset test)
 // 10. fast same-note re-plucks (gallops): found from short pitch-confidence dips + a small energy rise (The Trooper)
+// 11. transition blips: a <= 90 ms piece with no pluck within 2 semitones of a neighbour is dropped (Billie Jean A#1 extras)
 //  4. F#1 -> B1 hammer-on where the pitch sags just before the jump and the tracker drops out for a few
 //     frames during it: the F#1 vanished into the B1
 const A = require('../analysis.js');
@@ -136,6 +137,16 @@ const fr = a => a.map((m, i) => ({ t: i * 0.0107, m: m === null ? NaN : m, c: m 
   check(has && A.confDipReplucks(fr2, () => 0.5).length === 0, 'same dips without an energy rise are not re-plucks', 'fired');
   const steady = m.map((v, i) => ({ t: i * 0.0116, m: 40 + 0.3 * Math.sin(i * 0.8), c: 0.97 + 0.02 * Math.sin(i) }));
   check(has && A.confDipReplucks(steady, () => 4).length === 0, 'a steady (vibrato) note has no confidence dips', 'fired');
+}
+{ // 11: transition blip, real notes from Billie Jean (separated stem, 31.26-31.74 s): B1, a 70 ms A#1 with no pluck, C#2.
+  // The A#1 was an extra note. A real short note WITH a pluck, and a longer legato note, must stay.
+  const seq = () => [{ time: 31.26, midi: 35, dur: 0.15 }, { time: 31.41, midi: 34, dur: 0.07, inner: true, technique: 'legato' }, { time: 31.52, midi: 37, dur: 0.22 }];
+  const has = typeof A.dropTransitions === 'function';
+  const r = has ? A.dropTransitions(seq()) : seq();
+  check(has && r[1].blip === true && !r[0].blip && !r[2].blip, 'a 70 ms pitch passing between two notes is not a note', has ? r.map(n => n.blip ? 'x' : n.midi).join(' ') : 'no dropTransitions()');
+  const plucked = seq(); plucked[1].inner = false;
+  const legato = seq(); legato[1].dur = 0.14;
+  check(has && !A.dropTransitions(plucked)[1].blip && !A.dropTransitions(legato)[1].blip, 'a plucked short note or a 140 ms hammer-on stays', 'dropped');
 }
 (async () => {
   for (const c of cases) {

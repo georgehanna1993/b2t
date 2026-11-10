@@ -41,7 +41,8 @@
     dropRepluckRiseDb: 2.5,
     confDipMax: 0.87,    // re-pluck inside a steady note: pitch confidence dips to <= this (from >= 0.95)...
     confDipRiseDb: 2,    // ...with an energy rise of at least this much (tuned on 9 songs: found 69.9 -> 71.4 %)
-    fastMinGapMs: 70, // a mid-note pitch dropout followed by the same pitch is a re-pluck if the energy rises this much  // net change needed to call it a glide or jump (vibrato stays below this)
+    fastMinGapMs: 70,
+    passMaxMs: 90,       // a piece this short with no pluck, within 2 semitones of a neighbour, is a transition (9 songs: precision 68.5 -> ~70.5 %) // a mid-note pitch dropout followed by the same pitch is a re-pluck if the energy rises this much  // net change needed to call it a glide or jump (vibrato stays below this)
     jumpMaxFrames: 5,    // a pitch change spread over <= this many frames (~58 ms) is a jump, longer is a glide
     hammerMaxSemis: 5,   // bigger leaps without a new attack are re-plucks, not hammer-ons/pull-offs
     kickMaxMidi: 35,     // kick-drum bleed lives down here (< ~62 Hz) and snaps back up
@@ -189,6 +190,16 @@
       out.push(t); last = t;
     }
     return out;
+  }
+  // transition blips (see analyze): marks n.blip on very short pieces with no pluck within 2 semitones of a neighbour
+  function dropTransitions(real) {
+    if (!(CFG.passMaxMs > 0)) return real;
+    for (let i = 1; i < real.length; i++) {
+      const p = real[i - 1], n = real[i], q = real[i + 1];
+      if (!n.inner || n.blip || n.slideToF != null || p.slideToF != null || n.repluck || n.dur > CFG.passMaxMs / 1000) continue;
+      if (Math.abs(n.midi - p.midi) <= 2 || (q && Math.abs(n.midi - q.midi) <= 2 && q.time - (n.time + n.dur) < 0.04)) { n.blip = true; p.dur = Math.max(p.dur, n.time + n.dur - p.time); }
+    }
+    return real;
   }
   function dropoutReplucks(fr, rise, lead) {
     const out = [];
@@ -654,6 +665,9 @@
       if (n.inner && n.slideToF == null && p.slideToF == null && n.dur <= CFG.fretBlipMaxMs / 1000 && Math.abs(n.midi - p.midi) === 1 && q.midi === p.midi &&
           q.time - (n.time + n.dur) < 0.06 && n.time - p.time < 1) { n.blip = true; p.dur = Math.max(p.dur, n.time + n.dur - p.time); }
     }
+    // transition blips: a very short piece with no pluck of its own, within 2 semitones of a neighbour, is the pitch passing
+    // through (or sagging) while the finger moves to the next note, not a played note (Billie Jean: B1 A#1(70 ms) C#2)
+    dropTransitions(real);
     const kept = notes.filter(n => !n.blip && (n.mute || (n.midi >= CFG.minMidi && n.midi <= CFG.maxMidi)));
 
     // slap / pop: bright attack
@@ -671,6 +685,6 @@
     return { notes: kept, debug: { peakDb, floorDb, onsets: onsets.length, tuneOffset: tune, srD, trace: dbg } };
   }
 
-  const api = { CFG, analyze, buildPieces, dropoutReplucks, confDipReplucks, prepare, median, detectVibrato };
+  const api = { CFG, analyze, buildPieces, dropoutReplucks, confDipReplucks, dropTransitions, prepare, median, detectVibrato };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.LowlineAnalysis = api;
 })(typeof window !== 'undefined' ? window : globalThis);
