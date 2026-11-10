@@ -55,7 +55,7 @@
     // ---------- title block ----------
     if (o.title) { const t = textImage(doc, o.title, 22, 900, '#0f3d2e', CW); doc.addImage(t.c, 'PNG', M, y, t.w, t.h); y += t.h + 2; }
     if (o.artist) { const t = textImage(doc, o.artist, 13, 600, '#333333', CW); doc.addImage(t.c, 'PNG', M, y, t.w, t.h); y += t.h + 1; }
-    if (o.info) { doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5); doc.setTextColor(60); doc.text(`Bass  ·  Tuning ${d.names.join(' ')}  ·  Tempo ${Math.round(d.bpm)} bpm  ·  ${d.sig}`, M, y + 9); y += 14; }
+    if (o.info) { doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5); doc.setTextColor(60); doc.text(`Bass  ·  Tuning ${d.names.join(' ')}  ·  Tempo ${Math.round(d.sig === '6/8' || d.sig === '12/8' ? d.bpm / 1.5 : d.bpm)} bpm  ·  ${d.sig}`, M, y + 9); y += 14; }
     if (o.comment) { const t = textImage(doc, o.comment, 10, 400, '#444444', CW); doc.addImage(t.c, 'PNG', M, y, t.w, t.h); y += t.h + 2; }
     y += 10;
 
@@ -135,7 +135,7 @@
       const endX = x0 + sys.w * k;
       ln(endX, yTab, endX, yTab + tabH, si === systems.length - 1 ? 1.6 : 0.6, INK);
       if (o.notation) ln(endX, lineYn(0), endX, lineYn(4), si === systems.length - 1 ? 1.6 : 0.6, INK);
-      if (si === 0) { const ty = o.notation ? yN - 4 : yTab - 20; doc.setFillColor(...INK); doc.ellipse(x0 + 2, ty + 1.5, 2.1, 1.5, 'F'); ln(x0 + 4, ty + 1.5, x0 + 4, ty - 6, 0.6); doc.setFont('helvetica', 'bold'); doc.setTextColor(...INK); txt(`= ${Math.round(d.bpm)}`, x0 + 7, ty, 7, { align: 'left' }); }
+      if (si === 0) { const ty = o.notation ? yN - 4 : yTab - 20; doc.setFillColor(...INK); doc.ellipse(x0 + 2, ty + 1.5, 2.1, 1.5, 'F'); ln(x0 + 4, ty + 1.5, x0 + 4, ty - 6, 0.6); doc.setFont('helvetica', 'bold'); doc.setTextColor(...INK); txt(`${d.sig === '6/8' || d.sig === '12/8' ? '. ' : ''}= ${Math.round(d.sig === '6/8' || d.sig === '12/8' ? d.bpm / 1.5 : d.bpm)}`, x0 + 7, ty, 7, { align: 'left' }); }
       if (o.rhythm) stems(heads, yRhy, false);
       if (o.notation) stems(heads.filter(h => !h.n.mute || true), mid, true);
       y += sysH;

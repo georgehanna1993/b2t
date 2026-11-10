@@ -18,12 +18,16 @@ function autoRhythm(){ // estimate tempo + where bar 1 starts from the notes
   if(!notes.length)return;
   const est=LowlineRhythm.estimate(notes);
   Object.assign(rhythmState,{bpm:est.bpm,origin:est.origin,shiftBeats:0,conf:est.confidence,auto:true});
+  // swung / triplet feel: written in 12/8 (each beat = 3 triplet 8ths). Internally the 16th unit is 1/6 beat, so bpm x 1.5
+  if(est.swing){rhythmState.sig='12/8';rhythmState.bpm=Math.round(est.bpm*1.5*10)/10}else if(LowlineRhythm.compound(rhythmState.sig)&&rhythmState.autoSwing){rhythmState.sig='4/4'}
+  rhythmState.autoSwing=!!est.swing;rhythmState.swingMaybe=!!est.swingMaybe;
   syncRhythmControls();
 }
 function syncRhythmControls(){
   const bpm=document.getElementById('bpmInput'),sig=document.getElementById('sigSelect'),hint=document.getElementById('tempoHint');
-  if(bpm)bpm.value=Math.round(rhythmState.bpm*10)/10;if(sig)sig.value=rhythmState.sig;
-  if(hint)hint.textContent=rhythmState.auto?`auto · ${rhythmState.conf>.6?'confident':'unsure, adjust if bars look off'}`:'manual';
+  if(bpm)bpm.value=Math.round(LowlineRhythm.shownBpm(rhythmState.bpm,rhythmState.sig)*10)/10;if(sig)sig.value=rhythmState.sig;
+  if(hint&&rhythmState.swingMaybe&&!LowlineRhythm.compound(rhythmState.sig)){hint.innerHTML='This may have a swing / triplet feel. <button type="button" id="trySwing">Try 12/8 (swing)</button>';document.getElementById('trySwing').onclick=()=>{const s=document.getElementById('sigSelect');s.value='12/8';s.onchange({target:s})};return}
+  if(hint)hint.textContent=(rhythmState.autoSwing?'swing feel → 12/8 · ':'')+(rhythmState.auto?`auto · ${rhythmState.conf>.6?'confident':'unsure, adjust if bars look off'}`:'manual');
 }
 function buildTab(){
   const grid=document.getElementById('tabGrid');
@@ -155,8 +159,10 @@ const end=e=>{if(!dragging)return;dragging=false;try{waveform.releasePointerCapt
 waveform.addEventListener('pointerup',end);waveform.addEventListener('pointercancel',end)})();waveform.onkeydown=e=>{if(e.key==='ArrowRight')seek(nowTime()+1);if(e.key==='ArrowLeft')seek(nowTime()-1);if(e.key==='Home')seek(0);if(e.key==='End')seek(duration)};
 tuningSelect.onchange=buildTab;document.getElementById('octaveSelect').onchange=buildTab;document.getElementById('noteNamesBtn').onclick=e=>{showNames=!showNames;e.currentTarget.setAttribute('aria-pressed',showNames);buildTab()};document.getElementById('barsBtn').onclick=e=>{showBars=!showBars;e.currentTarget.setAttribute('aria-pressed',showBars);buildTab()};document.getElementById('rhythmBtn').onclick=e=>{showRhythm=!showRhythm;e.currentTarget.setAttribute('aria-pressed',showRhythm);buildTab()};
 document.getElementById('fingersBtn').onclick=e=>{showFingers=!showFingers;e.currentTarget.setAttribute('aria-pressed',showFingers);buildTab()};
-document.getElementById('bpmInput').onchange=e=>{const v=parseFloat(e.target.value);if(v>=30&&v<=300){const keepBar1=rhythmState.origin;rhythmState.bpm=v;rhythmState.origin=keepBar1;rhythmState.auto=false;syncRhythmControls();buildTab()}else syncRhythmControls()};
-document.getElementById('sigSelect').onchange=e=>{rhythmState.sig=e.target.value;buildTab()};
+document.getElementById('bpmInput').onchange=e=>{const v=parseFloat(e.target.value);if(v>=30&&v<=300){const keepBar1=rhythmState.origin;rhythmState.bpm=LowlineRhythm.compound(rhythmState.sig)?v*1.5:v;rhythmState.origin=keepBar1;rhythmState.auto=false;syncRhythmControls();buildTab()}else syncRhythmControls()};
+document.getElementById('sigSelect').onchange=e=>{const was=LowlineRhythm.compound(rhythmState.sig),now=LowlineRhythm.compound(e.target.value);
+  if(was!==now)rhythmState.bpm=Math.round(rhythmState.bpm*(now?1.5:1/1.5)*10)/10;   // keep the beat the same length
+  rhythmState.sig=e.target.value;rhythmState.autoSwing=false;syncRhythmControls();buildTab()};
 document.getElementById('autoTempoBtn').onclick=()=>{autoRhythm();buildTab()};
 document.getElementById('barPrevBtn').onclick=()=>{rhythmState.shiftBeats-=1;buildTab()};
 document.getElementById('barNextBtn').onclick=()=>{rhythmState.shiftBeats+=1;buildTab()};

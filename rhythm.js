@@ -17,7 +17,7 @@
     '12/8': { num: 12, den: 8, bar: 24, beat: 6 }
   };
   const ALLOWED = [1, 2, 3, 4, 6, 8, 12, 16];            // 16th, 8th, dotted 8th, quarter, dotted quarter, half, dotted half, whole
-  const CFG = { minBpm: 60, maxBpm: 180, priorBpm: 105, priorOct: 0.55, sigma: 0.028, posWeight: [1, 0.45, 0.75, 0.45] };
+  const CFG = { swingRatio: 5, swingMaybe: 2, swingMinGaps: 40, minBpm: 60, maxBpm: 180, priorBpm: 105, priorOct: 0.55, sigma: 0.028, posWeight: [1, 0.45, 0.75, 0.45] };
 
   const floorAllowed = n => { let r = 1; for (const a of ALLOWED) if (a <= n) r = a; return r; };
   const median = a => { const s = a.slice().sort((x, y) => x - y), m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
@@ -66,7 +66,8 @@
     let origin = best.off + phase * beat;
     const bar = 4 * beat;
     origin -= Math.ceil((origin - T[0] + 0.02) / bar) * bar;   // bar 1 starts at or before the first note
-    return { bpm, origin, confidence: Math.min(1, best.score / 0.8) };
+    const f = feel(notes, bpm);
+    return { bpm, origin, confidence: Math.min(1, best.score / 0.8), swing: f.swing, swingMaybe: f.maybe && !f.swing, swingRatio: f.ratio };
   }
 
   // ---- quantize + bars ----
@@ -121,6 +122,25 @@
     return { sig, bpm, origin, p, barU, beatU: S.beat, bars, events, minU };
   }
 
-  const api = { SIGS, CFG, ALLOWED, estimate, build };
+  // ---- feel: straight or swung/triplet? Gaps between consecutive notes (tempo drift does not matter): straight 8ths and 16ths
+  // give 1/2 and 1/4 of a beat, swung 8ths and triplets 1/3 and 2/3. Measured: Isn't She Lovely 10.5, Come Together 3.2,
+  // straight songs 0.06-0.8 (Billie Jean, What's Going On, AOBTD, Thank You, Walking on the Moon).
+  function feel(notes, bpm) {
+    const beat = 60 / bpm; let st = 0, tr = 0;
+    const ns = notes.filter(n => !n.mute);
+    for (let i = 1; i < ns.length; i++) {
+      const g = (ns[i].time - ns[i - 1].time) / beat;
+      if (Math.abs(g - 0.5) < 0.05 || Math.abs(g - 0.25) < 0.03) st++;
+      else if (Math.abs(g - 1 / 3) < 0.04 || Math.abs(g - 2 / 3) < 0.05) tr++;
+    }
+    const ratio = tr / Math.max(1, st);
+    // only an unmistakable swing switches automatically: a wrong tempo guess can make straight 16ths look like triplets
+    // (Can't Stop 3.4, The Trooper 2.3 at a wrong tempo); between swingMaybe and swingRatio the app only suggests 12/8
+    return { ratio, triplet: tr, straight: st, swing: ratio >= CFG.swingRatio && tr >= CFG.swingMinGaps, maybe: ratio >= CFG.swingMaybe && tr >= CFG.swingMinGaps };
+  }
+  const compound = sig => sig === '6/8' || sig === '12/8';
+  // the tempo a player counts: the quarter note in simple meters, the dotted quarter (3 triplet 8ths) in 6/8 and 12/8
+  const shownBpm = (bpm, sig) => (compound(sig) ? bpm / 1.5 : bpm);
+  const api = { SIGS, CFG, ALLOWED, estimate, build, feel, compound, shownBpm };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.LowlineRhythm = api;
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -110,7 +110,8 @@
     const sg = rh.sig.split('/');
     text(gBack, barStart[0] + 15, TOP + 27, sg[0], { size: 21, weight: 700 });
     text(gBack, barStart[0] + 15, TOP + 27 + 25, sg[1], { size: 21, weight: 700 });
-    text(gBack, barStart[0] + 4, 12, '\u2669 = ' + Math.round(rh.bpm), { anchor: 'start', size: 11, weight: 700 });
+    const cmp = rh.sig === '6/8' || rh.sig === '12/8';
+    text(gBack, barStart[0] + 4, 12, (cmp ? '\u2669. = ' + Math.round(rh.bpm / 1.5) : '\u2669 = ' + Math.round(rh.bpm)), { anchor: 'start', size: 11, weight: 700 });
 
     // ---------- 3) notes, technique marks ----------
     const noteEv = new Map();           // note index -> its 'note' event

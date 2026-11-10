@@ -117,6 +117,25 @@ Playback: at 100% speed audio plays from the decoded AudioBuffer through Web Aud
 instant start after seek/drag/pause (the <audio> element lagged on real devices). Slowed speeds use <audio> (pitch preserved).
 Footer shows a version label (bump it on UI releases) so the owner can tell a cached page from the new one.
 
+Nov 2026 round on 9 songs with tabs (`node test/score_all.js`, ~40 s; songs + refs in samples/, refs built from the owner's tabs:
+ASCII tabs parsed, Guitar-Pro PDFs read by number position on the tab lines (pdfplumber), image tabs by eye). Baseline 69.9% found /
+69.8% precision -> 71.4% / 70.7%:
+- confDipReplucks: fast same-note re-plucks (gallops) = short pitch-confidence dip (<= 0.87 from >= 0.95) + >= 2 dB rise, >= 70 ms
+  apart (Trooper 57 -> 65%, Come Together 62 -> 68%). A plain energy-rise rule collapsed precision (70 -> 47%) and was dropped.
+- dropTransitions: a <= 90 ms piece with no pluck within 2 semitones of a neighbour is the pitch passing through, not a note
+  (Billie Jean 'B1 A#1(70 ms) C#2'); precision 68.5 -> 70.7%.
+- 'Low E read as B1' (Thank You) and 'B2 read as B1' (Billie Jean) are NOT app errors: the recordings have no 41 Hz / a 62 Hz
+  fundamental; the tabs (simplified / my string reading) differ from the record. Simplified ilovetabs tabs leave out real notes.
+- Separation gaps: the model sometimes files the bass under 'other' (Something: 7-8 s stretches; the original fp32 model does the
+  same). The app flags seconds with pitched low notes in the mix (low-band autocorrelation) but a >= 30 dB quieter bass track
+  (findBassGaps in app.js), shades them on the waveform and names them. Kick-only passages are unpitched and not flagged.
+- Swing: rhythm.feel() = triplet-like gaps (1/3, 2/3 beat) vs straight (1/2, 1/4). Ratio >= 5 (>= 40 gaps) -> automatic 12/8
+  (Isn't She Lovely 10.5); 2..5 -> 'Try 12/8 (swing)' suggestion (Come Together 4.0; also Can't Stop 3.4 / Trooper 2.3, which are
+  straight but whose tempo was mis-estimated, hence no automatic switch). In 6/8 and 12/8 the internal 16th unit is 1/6 beat:
+  bpm_internal = 1.5 x the dotted-quarter tempo shown (shownBpm()).
+Song notes: Trooper ref is partial (pages 1-3, scored on samples/trooper_66.wav); Virtual Insanity repeat counts approximate;
+Can't Stop (notation only), Isn't She Lovely (lead sheet), Toxicity, What's Going On (no tab) are separated but unscored.
+
 ## Scoring against real tabs (`test/score_tab.js`)
 `node test/score_tab.js samples/song.wav samples/song_ref.js [-v]` aligns detected pitches with a tab's pitch sequence (no timing
 needed) and prints per-section correct / wrong(octave) / missed / extra and precision. Reference files are written by hand from the

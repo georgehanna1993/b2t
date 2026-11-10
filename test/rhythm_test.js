@@ -36,4 +36,12 @@ for (const bpm of [80, 96, 108, 120, 140]) {
 for (const sig of ['3/4', '6/8', '12/8', '2/4']) { const n = mkNotes(100, [[0, 4], [4, 4], [8, 4]], 5); const rb = R.build(n, { bpm: 100, origin: n[0].time, sig }); ok(!covers(rb), sig + ': ' + covers(rb)); }
 // first note before the given origin must not produce negative positions
 { const n = mkNotes(100, [[0, 4], [4, 4]], 3); const rb = R.build(n, { bpm: 100, origin: n[0].time + 0.5, sig: '4/4' }); ok(rb.events.every(e => e.u >= 0), 'no negative positions'); ok(!covers(rb), 'shifted origin: ' + covers(rb)); }
+// swing feel (owner's songs: Isn't She Lovely, Stray Cat Strut were forced onto straight 16ths): swung 8ths = long-short pairs at
+// 2/3 + 1/3 of a beat. An unmistakable swing switches to 12/8; straight 8ths and 16ths must not.
+{ const beat = 60 / 110, sw = [], st = [];
+  for (let b = 0; b < 64; b++) { sw.push({ time: b * beat, dur: 0.3, midi: 40 }, { time: b * beat + beat * 2 / 3, dur: 0.15, midi: 43 }); st.push({ time: b * beat, dur: 0.2, midi: 40 }, { time: b * beat + beat / 2, dur: 0.2, midi: 43 }); }
+  const fs = R.feel ? R.feel(sw, 110) : null, ft = R.feel ? R.feel(st, 110) : null;
+  ok(fs && fs.swing, 'swung 8ths read as swing: ' + (fs ? fs.ratio.toFixed(2) : 'no feel()'));
+  ok(ft && !ft.swing && !ft.maybe, 'straight 8ths are not swing: ' + (ft ? ft.ratio.toFixed(2) : 'no feel()'));
+  ok(R.shownBpm && R.shownBpm(165, '12/8') === 110 && R.shownBpm(110, '4/4') === 110, '12/8 shows the dotted-quarter tempo'); }
 console.log(`${pass} passed, ${fail} failed`); process.exit(fail ? 1 : 0);
