@@ -28,7 +28,8 @@ if (require.main === module) {
     r.notes.forEach(n => { if (n.mute) return; got.push({ midi: n.midi, t: n.time }); if (n.slideTo != null) got.push({ midi: n.slideTo, t: n.time + 0.05, slide: true }); });
     const refN = [], secOf = [];
     ref.sections.forEach(([name, ns], k) => ns.forEach(m => { refN.push(m); secOf.push(k); }));
-    const ops = align(refN, got);
+    let ops = align(refN, got);
+    if (ref.partial) { let last = -1; ops.forEach((o, k) => { if (o[1] != null) last = k; }); ops = ops.slice(0, last + 1); }   // tab covers only the start of the song
     const per = ref.sections.map(s => ({ name: s[0], n: s[1].length, ok: 0, wrong: 0, oct: 0, miss: 0, extra: 0, t0: null }));
     let lastSec = 0; const mistakes = [];
     ops.forEach(([op, i, j]) => {
