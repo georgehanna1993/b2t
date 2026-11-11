@@ -106,6 +106,13 @@ const cases = [];
   tone(out, 1.85, 0.4, () => 36); want.push([1.85, 36]);
   cases.push({ name: 'short octave-up note over a ringing low note', out, want });
 }
+{ // 13: owner's Arabic song 0:21.84: a 60 ms G1 pickup right before a G1 note was an 'x' (YIN frames never settled on 49 Hz)
+  const out = new Float32Array(SR * 3), want = [];
+  tone(out, 0.3, 0.5, () => 38); want.push([0.3, 38]);
+  tone(out, 1.0, 0.06, () => 31); want.push([1.0, 31]);
+  tone(out, 1.21, 0.45, () => 31); want.push([1.21, 31]);
+  cases.push({ name: 'short pitched pickup is a note, not an x', out, want });
+}
 let pass = 0, fail = 0;
 const check = (ok, name, info) => { ok ? pass++ : fail++; console.log(`${ok ? 'ok  ' : 'FAIL'} ${name}${ok ? '' : ' | ' + info}`); };
 // pitch frames recorded from the real stem (48 kHz decode), fed straight to buildPieces

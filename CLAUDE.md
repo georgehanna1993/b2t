@@ -162,8 +162,11 @@ Octave-up over a ringing note (owner's corrections, same song separated in-app: 
 harmonics (f0, 3f0) collapsed against the even ones (2f0, 4f0): ratio < octUpAbs 0.5 and < octUpRel 0.5 x the previous note's ->
 an octave up. Song: 452 same-note pairs, relative ratio median 1.0, 10th pct 0.86. Without the 0.25 s cap Come Together lost
 1.1 points. stem_artifacts_test #12 (synthetic, fails on old code). 9 songs: 72.1 / 70.8 -> 72.5% found / 71.2% precision.
-Owner's corrections NOT fixed yet: 0:21.84 'x' is a clear G1 by ear and by spectrum (a 60 ms note; YIN never settles at 49 Hz);
-0:20.15 'should be D3' - the separated audio there is A1 (no 147 Hz), so the time may be off. Stemz stem reads the pickups as
+Pitched dead notes (owner: "the x's are still x"): an 'x' whose burst is clearly periodic over ONE YIN window (dip < xYinThresh 0.4,
+1 - dip >= xPitchAcf 0.6) and within 0.75 semitone of a neighbouring note (< 0.6 s) becomes that note (n.fromDead). 0:21.84 -> G1;
+23 of 38 x's in the song. Unconstrained conversion: 73.0% found but precision 69.5% (bleed in VI / Something), so neighbours only:
+9 songs 72.5 / 71.2 -> 72.8% / 70.9%. stem_artifacts_test #13 (fails on old code).
+Owner's other corrections: 0:20.15 'should be D3' - the separated audio there is A1 (no 147 Hz), so the time may be off. Stemz stem reads the pickups as
 G3/E3 (12-19 semitones up) where the in-app separation reads the main pitch: the Stemz 48 kbps stem smears short low notes.
 
 ## Scoring against real tabs (`test/score_tab.js`)

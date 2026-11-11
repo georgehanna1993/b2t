@@ -46,6 +46,8 @@
     jumpMaxFrames: 5,    // a pitch change spread over <= this many frames (~58 ms) is a jump, longer is a glide
     hammerMaxSemis: 5,   // bigger leaps without a new attack are re-plucks, not hammer-ons/pull-offs
     gapSplitSemis: 1.5,
+    xYinThresh: 0.4,     // pitched 'dead note': the burst's YIN dip must go below this ...
+    xPitchAcf: 0.6,      // ... (1 - dip >= this) and land within 0.75 semitone of a neighbouring note (9 songs: +0.3 found, -0.3 precision)
     octUpAbs: 0.5, octUpRel: 0.5, octUpMaxDur: 0.25, // same note again but its low odd harmonics collapsed (ratio vs the previous note): an octave up  // a pitch change of >= this across an unvoiced gap with no onset splits the note (buildPieces)
     kickMaxMidi: 35,     // kick-drum bleed lives down here (< ~62 Hz) and snaps back up
     tailDb: 24,          // frames this far under the note's peak are ignored (decaying tail, hum)
@@ -657,6 +659,35 @@
       notes.push({ time: tC, mf: NaN, midi: null, dur: 0.08, confidence: 0.4, technique: 'muted', mute: true, ghost: true, feat: null });
     });
     notes.sort((p, q) => p.time - q.time);
+
+    // A 'dead note' whose short burst is clearly pitched is a played note: YIN needs several frames to settle on a low pitch,
+    // and a 60 ms G1 never gets them (owner's Arabic song 0:21.84: x by the app, G1 by ear and by spectrum). One YIN window over
+    // the whole burst; if it is clearly periodic AND within 0.75 semitone of a neighbouring note, it is that note (a pickup /
+    // repeat). Unconstrained pitches cost precision on stems with bleed (9 songs: 71.2 -> 69.5%), so only neighbours count.
+    if (CFG.xPitchAcf < 1) {
+      const hzOf = m => 440 * Math.pow(2, (m - 69) / 12);
+      notes.forEach((n, k) => {
+        if (!n.mute || n.ghost) return;
+        const next = notes.slice(k + 1).find(q => q.time > n.time + 0.02), stopT = Math.min(n.time + 0.1, next ? next.time - 0.005 : 1e9);
+        const i0 = Math.round((n.time + 0.008) * srD), L = Math.round((stopT - n.time - 0.008) * srD);
+        if (L < 0.045 * srD || i0 + L >= x.length) return;
+        // one YIN window over the whole burst (the normal tracker uses short frames that never settle on a 60 ms low note)
+        const tMin = Math.floor(srD / 400), tMax = Math.min(Math.ceil(srD / 38), L - Math.round(0.03 * srD));
+        if (tMax <= tMin + 4) return;
+        const Wn = L - tMax, dd = new Float32Array(tMax + 1); let run = 0, bestT = -1;
+        for (let t = 1; t <= tMax; t++) { let s2 = 0; for (let q = 0; q < Wn; q++) { const v = x[i0 + q] - x[i0 + q + t]; s2 += v * v; } run += s2; dd[t] = s2 * t / (run || 1e-20); }
+        for (let t = tMin; t < tMax; t++) if (dd[t] < CFG.xYinThresh && dd[t] <= dd[t - 1] && dd[t] <= dd[t + 1]) { bestT = t; break; } // first clear dip = the period
+        if (bestT < 0) { n.xAcf = 0; return; }
+        const y0 = dd[bestT - 1], y1 = dd[bestT], y2 = dd[bestT + 1], den = y0 - 2 * y1 + y2, Tf = bestT + (den > 0 ? 0.5 * (y0 - y2) / den : 0);
+        const m0 = 69 + 12 * Math.log2(srD / Tf / 440), r = 1 - y1;
+        n.xAcf = r; n.xMidi = m0;
+        // a 60-90 ms window reads a low note up to ~0.6 semitone off (attack bend): 46.9 Hz for the G1 at 0:21.84. A burst
+        // right next to a note of that pitch takes the note's pitch
+        let mf = null; const nb_ = [notes[k - 1], next].filter(q => q && !q.mute && !isNaN(q.mf) && Math.abs(q.time - n.time) < 0.6);
+        for (const q of nb_) if (Math.abs(q.mf - m0) <= 0.75) { mf = m0 + Math.round(q.mf - m0); break; }
+        if (mf != null && r >= CFG.xPitchAcf && m0 >= CFG.minMidi - 0.5 && m0 <= CFG.maxMidi + 0.5) { n.mute = false; n.mf = mf; n.technique = null; n.confidence = 0.5; n.fromDead = true; }
+      });
+    }
 
     // global tuning offset (bass a little sharp/flat of A=440)
     const pitched = notes.filter(n => !n.mute && !isNaN(n.mf));
