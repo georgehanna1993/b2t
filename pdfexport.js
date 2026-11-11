@@ -30,6 +30,28 @@
     // ---------- bars -> natural widths ----------
     const bars = []; for (let b = 0; b < rh.bars; b++) bars.push({ i: b, evs: [] });
     rh.events.forEach(e => { if (bars[e.bar]) bars[e.bar].evs.push(e); });
+    // ---------- repeats, as tab books write them: identical bars (or 2- / 4-bar riffs) once, between |: :| with 'xN' ----------
+    // a bar's identity = the notes it starts (position in the bar + pitch, or x) and where ties land: small length or technique
+    // differences from the analysis would otherwise make every repeat of a riff look different
+    const sig = b => b.evs.filter(e => e.kind !== 'rest').map(e => { const n = notes[e.note]; return `${e.kind === 'tie' ? 't' : ''}${e.pos}:${n.mute ? 'x' : n.midi}`; }).join(' ') || 'rest';
+    let shown = bars;
+    if (o.repeats) {
+      const S2 = bars.map(sig), out = [];
+      for (let i = 0; i < bars.length;) {
+        let done = false;
+        for (const L of [4, 2, 1]) {
+          if (i + 2 * L > bars.length) continue;
+          let c = 1; const same = (a, b) => { for (let q = 0; q < L; q++) if (S2[a + q] !== S2[b + q]) return false; return true; };
+          while (i + (c + 1) * L <= bars.length && same(i, i + c * L)) c++;
+          if (c >= 2 && !(L > 1 && S2.slice(i, i + L).every(x => x === S2[i]))) {   // a 2/4-bar group of one repeated bar is better as 1 bar xN
+            for (let q = 0; q < L; q++) out.push(Object.assign({}, bars[i + q], { repStart: q === 0, repEnd: q === L - 1 ? c : 0 }));
+            i += L * c; done = true; break;
+          }
+        }
+        if (!done) { out.push(bars[i]); i++; }
+      }
+      shown = out;
+    }
     const evW = e => {
       const n = e.note != null ? notes[e.note] : null;
       let w = Math.max(S.minEv, e.len * S.unit * 1.0);
@@ -38,11 +60,11 @@
       if (n && !n.mute && n.fret >= 10) w = Math.max(w, 14);
       return w;
     };
-    bars.forEach(b => { b.evs.forEach(e => (e.w = evW(e))); b.pad = 7; b.w = b.pad + b.evs.reduce((a, e) => a + e.w, 0) + 3; if (!b.evs.length) b.w = 60; });
+    shown.forEach(b => { b.evs.forEach(e => (e.w = evW(e))); b.pad = b.repStart ? 12 : 7; b.w = b.pad + b.evs.reduce((a, e) => a + e.w, 0) + 3; if (!b.evs.length) b.w = 60; });
     // ---------- systems ----------
     const LABEL = 14, FIRST = 26;                                  // string names column, clef + time signature on system 1
     const systems = []; let cur = null;
-    bars.forEach(b => {
+    shown.forEach(b => {
       const room = CW - LABEL - (systems.length ? 0 : FIRST);
       if (!cur || cur.w + b.w > (cur.first ? room : CW - LABEL)) { cur = { bars: [], w: 0, first: !systems.length }; systems.push(cur); }
       cur.bars.push(b); cur.w += b.w;
@@ -96,6 +118,15 @@
         ln(bx, yTab, bx, yTab + tabH, bi === 0 ? 0.8 : 0.6, INK);
         if (o.notation) ln(bx, lineYn(0), bx, lineYn(4), 0.6, INK);
         if (o.bars) { doc.setFont('helvetica', 'normal'); doc.setTextColor(120); txt(String(b.i + 1), bx + 2, (o.notation ? yN + 2 : yTab - 11), 6, { align: 'left' }); }
+        const repSign = (xx, start) => {            // thick + thin bar and two dots (start: dots after, end: dots before)
+          const th = start ? xx + 1 : xx - 1, tn = start ? xx + 3.5 : xx - 3.5, dx = start ? xx + 6.5 : xx - 6.5;
+          [[yTab, yTab + tabH, tabH]].concat(o.notation ? [[lineYn(0), lineYn(4), 4 * G]] : []).forEach(([a, z, h]) => {
+            ln(th, a, th, z, 2, INK); ln(tn, a, tn, z, 0.6, INK); doc.setFillColor(...INK);
+            doc.circle(dx, a + h * 0.36, 0.9, 'F'); doc.circle(dx, a + h * 0.64, 0.9, 'F');
+          });
+        };
+        if (b.repStart) repSign(bx, true);
+        if (b.repEnd) { repSign(bx + bw, false); doc.setFont('helvetica', 'bold'); doc.setTextColor(...INK); txt(`\u00d7${b.repEnd}`, bx + bw - 2, (o.notation ? yN + 2 : yTab - 11), 7.5, { align: 'right' }); }
         let ex = bx + b.pad * k, barSharps = {};
         b.evs.forEach(e => {
           const w = e.w * k, cx = ex + Math.min(w / 2, 6 * k) + 1; e.px = cx; ex += w;
@@ -121,7 +152,7 @@
             }
             if (n.slideOut || n.slideCut) { const up = n.slideCut ? n.slideTo > n.midi : n.slideOut === 'up'; ln(cx + tw / 2 + 0.5, ry + (up ? 2.5 : -2.5), cx + tw / 2 + 7, ry + (up ? -3 : 3), 0.7); }
             if (n.slideIn) { const fb = n.slideIn === 'up'; ln(cx - tw / 2 - 7, ry + (fb ? 3 : -3), cx - tw / 2 - 0.5, ry + (fb ? -2.5 : 2.5), 0.7); }
-            if (n.slap) { doc.setTextColor(...INK); doc.setFont('helvetica', 'bold'); txt(n.string >= nStr - 2 ? 'P' : 'S', cx, yTab - 8, 6); }
+            if (n.slap) { doc.setTextColor(...INK); doc.setFont('helvetica', 'bold'); txt(n.string >= nStr - 2 ? 'P' : (o.slapLetter || 'S'), cx, yTab - 8, 6); }
             if (n.vibrato) { doc.setLineWidth(0.5); doc.setDrawColor(...INK); const seg = []; for (let q = 0; q < 4; q++) seg.push([1.5, q % 2 ? 1.5 : -1.5, 3, q % 2 ? 1.5 : -1.5, 3, 0]); doc.lines(seg.map(s => [s[0], s[1], s[2], s[3], s[4], s[5]]), cx - 4, yTab - 7, [1, 1], 'S'); }
           } else { // tie arc back to the note's first event
             const fx = prevNoteX.get(e.note); if (fx != null) arc(fx + 3, cx - 5, ry - 4, 3);

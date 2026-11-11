@@ -315,7 +315,7 @@
     const f = new FormData($('pdfForm')), on = k => f.get(k) === 'on';
     return { title: (f.get('title') || '').trim(), artist: (f.get('artist') || '').trim(), comment: (f.get('comment') || '').trim(), info: on('info'),
       notation: on('notation'), rhythm: on('rhythm'), names: on('names'), fingers: on('fingers'), bars: on('bars'), legend: on('legend'), credit: on('credit'),
-      page: f.get('page'), orient: f.get('orient') };
+      page: f.get('page'), orient: f.get('orient'), repeats: on('repeats'), slapLetter: f.get('slapLetter') || 'S' };
   }
   async function makePdf(o) {
     await loadScript('vendor/jspdf.umd.min.js'); await loadScript('pdfexport.js');

@@ -91,6 +91,12 @@ values (3.2 pt per 16th, min 12 pt per event), bars packed into systems, every s
 width. Options dialog with a live preview (iframe of the blob; a new-tab link for browsers without an inline PDF viewer):
 title/artist/note (drawn via <canvas>, so any script), tuning/tempo line, notation (bass clef, beams, accidentals), rhythm
 stems, bar numbers, note names, fingers, legend, page numbers, A4/Letter, portrait/landscape. File: "<Title> - Bass Tab.pdf".
+Repeats (PDF option, default on): runs of identical bars or 2/4-bar groups (identity = note positions + pitches, ties) are
+written once between |: :| with 'xN', as tab books do; exact repeats are rarer than expected in detected music (Billie Jean
+6 -> 5 pages, Ool Tani Keda 3 -> 3). Slap letter option: S (Guitar Pro) or T (Hal Leonard).
+Notation conventions checked (Nov 2026): x = dead note, (n) in tab = tied note at a bar start (Dorico/MuseScore/Hal Leonard)
+but ALSO = ghost note in Guitar Pro; H/P arcs, / \\ slides, ~ vibrato match. Not detectable from audio: let ring, palm mute,
+harmonics, accents. Section names (Intro/Verse) are the next notation feature to add (editor + PDF).
 Ool Tani Keda: 21 raster pages -> 3 vector pages, ~40 ms, 91 KB (7 pages / 203 KB with notation).
 Separation speed: overlap 0.25 -> 0.1 (CT full: 208 s -> 146 s CLI, notes 62.4% -> 63.1%, precision 79.9% -> 80.9%).
 Separated songs are saved in IndexedDB 'lowline-bass' (Int16, key name|size|lastModified, last 8): reopening is instant (0.6 s).
