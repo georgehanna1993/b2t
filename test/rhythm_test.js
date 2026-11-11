@@ -44,4 +44,22 @@ for (const sig of ['3/4', '6/8', '12/8', '2/4']) { const n = mkNotes(100, [[0, 4
   ok(fs && fs.swing, 'swung 8ths read as swing: ' + (fs ? fs.ratio.toFixed(2) : 'no feel()'));
   ok(ft && !ft.swing && !ft.maybe, 'straight 8ths are not swing: ' + (ft ? ft.ratio.toFixed(2) : 'no feel()'));
   ok(R.shownBpm && R.shownBpm(165, '12/8') === 110 && R.shownBpm(110, '4/4') === 110, '12/8 shows the dotted-quarter tempo'); }
+// long songs (owner's Arabic song Law Yeuaaidni El Hawa, 6:40 at a steady 141.86 bpm): the tempo must be fitted to ~0.01 bpm,
+// or the grid drifts by a 16th before the end and a wrong tempo wins (was read as 133 / 115, every bar came out wrong)
+{ let seed = 7; const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647 - 0.5);
+  const bpm = 141.86, beat = 60 / bpm, n = [];
+  for (let b = 0; b < 4 * 230; b += 2) { // main note every 2 beats, an 8th pickup before it, sometimes an off-beat
+    n.push({ time: 0.5 + b * beat - beat / 2 + rnd() * 0.012, dur: 0.12, midi: 38 }, { time: 0.5 + b * beat + rnd() * 0.012, dur: 0.6, midi: 38 });
+    if (b % 8 === 4) n.push({ time: 0.5 + (b + 1) * beat + rnd() * 0.012, dur: 0.2, midi: 45 });
+  }
+  const est = R.estimate(n);
+  ok(Math.abs(est.bpm - bpm) < 0.03, `6-minute song at 141.86 bpm estimated as ${est.bpm}`);
+  const rb = R.build(n, { bpm: est.bpm, origin: est.origin, sig: '4/4' });
+  const off = n.filter(x => Math.abs((x.time - rb.origin) / rb.p - Math.round((x.time - rb.origin) / rb.p)) * rb.p > 0.03).length;
+  ok(off === 0, `${off} notes off the grid at the end of a long song`);
+  // swung song of the same length: the precise fit must not turn its triplet 8ths into straight 16ths at 3/4 of the tempo
+  const sb = 118.8, sbeat = 60 / sb, sw = [];
+  for (let b = 0; b < 400; b++) { sw.push({ time: b * sbeat + rnd() * 0.01, dur: 0.3, midi: 40 }); if (b % 2) sw.push({ time: b * sbeat + sbeat / 3 + rnd() * 0.01, dur: 0.1, midi: 43 }); sw.push({ time: b * sbeat + sbeat * 2 / 3 + rnd() * 0.01, dur: 0.15, midi: 43 }); }
+  const es = R.estimate(sw);
+  ok(es.swing && Math.abs(es.bpm - sb) < 1, `long swung song: ${es.bpm} bpm, swing ${es.swing}`); }
 console.log(`${pass} passed, ${fail} failed`); process.exit(fail ? 1 : 0);

@@ -17,7 +17,7 @@
     '12/8': { num: 12, den: 8, bar: 24, beat: 6 }
   };
   const ALLOWED = [1, 2, 3, 4, 6, 8, 12, 16];            // 16th, 8th, dotted 8th, quarter, dotted quarter, half, dotted half, whole
-  const CFG = { swingRatio: 5, swingMaybe: 2, swingMinGaps: 40, minBpm: 60, maxBpm: 180, priorBpm: 105, priorOct: 0.55, sigma: 0.028, posWeight: [1, 0.45, 0.75, 0.45] };
+  const CFG = { swingRatio: 5, swingMaybe: 2, swingMinGaps: 40, minBpm: 60, maxBpm: 180, priorBpm: 105, priorOct: 0.55, sigma: 0.028, posWeight: [1, 0.45, 0.75, 0.45], longSpan: 90, winSec: 40 };
 
   const floorAllowed = n => { let r = 1; for (const a of ALLOWED) if (a <= n) r = a; return r; };
   const median = a => { const s = a.slice().sort((x, y) => x - y), m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
@@ -25,37 +25,60 @@
   function weights(notes) { return notes.map(n => (n.technique === 'legato' ? 0.4 : 1) * (n.mute ? 0.7 : 1)); }
 
   // ---- tempo: which 16th-note grid do the onsets sit on? ----
+  const prior = bpm => Math.exp(-0.5 * Math.pow(Math.log2(bpm / CFG.priorBpm) / CFG.priorOct, 2));
+  function gridScore(T, W, sumW, bpm, off) {
+    const p = 15 / bpm; let sc = 0;
+    for (let i = 0; i < T.length; i++) {
+      const x = (T[i] - off) / p, r = Math.round(x), err = (x - r) * p, pos = ((r % 4) + 4) % 4;
+      sc += W[i] * CFG.posWeight[pos] * Math.exp(-0.5 * Math.pow(err / CFG.sigma, 2));
+    }
+    return sc / sumW * prior(bpm);
+  }
+  // best (bpm, offset) with bpm in [lo, hi]; offsets either the whole beat or +-offWin around `around`
+  function gridSearch(T, W, sumW, lo, hi, bStep, oStep, around, offWin) {
+    let best = { score: -1, bpm: lo, off: 0 };
+    for (let bpm = lo; bpm <= hi + 1e-9; bpm += bStep) {
+      const beat = 60 / bpm, o0 = around == null ? 0 : Math.max(0, around - offWin), o1 = around == null ? beat : Math.min(beat, around + offWin);
+      for (let off = o0; off < o1; off += oStep) { const sc = gridScore(T, W, sumW, bpm, off); if (sc > best.score) best = { score: sc, bpm, off }; }
+    }
+    return best;
+  }
   function estimate(notes) {
     const T = notes.map(n => n.time), W = weights(notes);
     if (T.length < 4) return { bpm: 100, origin: T.length ? T[0] : 0, confidence: 0 };
-    const sumW = W.reduce((a, b) => a + b, 0);
-    let best = { score: -1, bpm: 100, off: 0 };
-    for (let bpm = CFG.minBpm; bpm <= CFG.maxBpm; bpm += 0.25) {
-      const p = 15 / bpm, beat = 4 * p, prior = Math.exp(-0.5 * Math.pow(Math.log2(bpm / CFG.priorBpm) / CFG.priorOct, 2));
-      for (let off = 0; off < beat; off += 0.005) {
-        let sc = 0;
-        for (let i = 0; i < T.length; i++) {
-          const x = (T[i] - off) / p, r = Math.round(x), err = (x - r) * p, pos = ((r % 4) + 4) % 4;
-          sc += W[i] * CFG.posWeight[pos] * Math.exp(-0.5 * Math.pow(err / CFG.sigma, 2));
-        }
-        sc = sc / sumW * prior;
-        if (sc > best.score) best = { score: sc, bpm, off };
+    const sumW = W.reduce((a, b) => a + b, 0), span = T[T.length - 1] - T[0];
+    let best;
+    if (span > CFG.longSpan) {
+      // Long songs: a 0.25 bpm step drifts by a whole 16th over a few minutes (6:40 at 141.86 bpm: 0.3 s), so the true tempo never
+      // lines up and a wrong one wins (Law Yeuaaidni El Hawa read as 133/115). Find the tempo on ~40 s windows, where that drift is
+      // small, take the median, then fit it precisely (0.02 bpm, then 0.002 and 0.0005) on the whole song.
+      const ests = [];
+      for (let t0 = T[0]; t0 < T[T.length - 1]; t0 += CFG.winSec) {
+        const idx = []; T.forEach((t, i) => { if (t >= t0 && t < t0 + CFG.winSec) idx.push(i); });
+        if (idx.length < 16) continue;
+        const wT = idx.map(i => T[i]), wW = idx.map(i => W[i]);
+        ests.push(gridSearch(wT, wW, wW.reduce((a, b) => a + b, 0), CFG.minBpm, CFG.maxBpm, 0.25, 0.01, null).bpm);
+      }
+      const b0 = ests.length ? median(ests) : 100;
+      best = gridSearch(T, W, sumW, Math.max(CFG.minBpm, b0 - 0.5), Math.min(CFG.maxBpm, b0 + 0.5), 0.02, 0.004, null);
+      best = gridSearch(T, W, sumW, best.bpm - 0.025, best.bpm + 0.025, 0.002, 0.001, best.off, 0.01);
+      best = gridSearch(T, W, sumW, best.bpm - 0.002, best.bpm + 0.002, 0.0005, 0.0005, best.off, 0.003);
+    } else {
+      best = gridSearch(T, W, sumW, CFG.minBpm, CFG.maxBpm, 0.25, 0.005, null);
+      best = gridSearch(T, W, sumW, best.bpm - 0.5, best.bpm + 0.5, 0.05, 0.001, best.off, 0.01);
+    }
+    // A precise fit can lock onto the triplet 8ths of a swung song as if they were straight 16ths (Isn't She Lovely: 89.09 =
+    // 3/4 of 118.8). Then most gaps are one 16th and the gaps read at 4/3 of the tempo are clearly swung: use that tempo.
+    if (span > CFG.longSpan && !feel(notes, best.bpm).swing && feel(notes, best.bpm * 4 / 3).swing) {
+      const p0 = 15 / best.bpm, gaps = [0, 0, 0];
+      for (let i = 1; i < T.length; i++) { const g = Math.round((T[i] - T[i - 1]) / p0); if (g === 1 || g === 2) gaps[g]++; }
+      if (gaps[1] >= 3 * gaps[2]) {
+        const b43 = best.bpm * 4 / 3;
+        best = gridSearch(T, W, sumW, b43, b43, 1, 0.001, null);
       }
     }
-    // refine bpm/offset around the winner
-    for (let bpm = best.bpm - 0.5; bpm <= best.bpm + 0.5; bpm += 0.05) {
-      const p = 15 / bpm, beat = 4 * p;
-      for (let off = Math.max(0, best.off - 0.01); off < Math.min(beat, best.off + 0.01); off += 0.001) {
-        let sc = 0;
-        for (let i = 0; i < T.length; i++) {
-          const x = (T[i] - off) / p, r = Math.round(x), err = (x - r) * p, pos = ((r % 4) + 4) % 4;
-          sc += W[i] * CFG.posWeight[pos] * Math.exp(-0.5 * Math.pow(err / CFG.sigma, 2));
-        }
-        sc = sc / sumW * Math.exp(-0.5 * Math.pow(Math.log2(bpm / CFG.priorBpm) / CFG.priorOct, 2));
-        if (sc > best.score) best = { score: sc, bpm, off };
-      }
-    }
-    const bpm = Math.round(best.bpm * 10) / 10, p = 15 / bpm, beat = 4 * p;
+    // keep the fitted precision: rounding 141.86 to 141.9 moves the last bar of a 6-minute song by a 16th
+    const bpm = span > CFG.longSpan ? Math.round(best.bpm * 1000) / 1000 : Math.round(best.bpm * 10) / 10, p = 15 / bpm, beat = 4 * p;
     // which beat is the downbeat? the one where the longest notes land
     const phaseScore = [0, 0, 0, 0];
     notes.forEach((n, i) => {

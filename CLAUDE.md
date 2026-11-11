@@ -142,6 +142,16 @@ ASCII tabs parsed, Guitar-Pro PDFs read by number position on the tab lines (pdf
 Song notes: Trooper ref is partial (pages 1-3, scored on samples/trooper_66.wav); Virtual Insanity repeat counts approximate;
 Can't Stop (notation only), Isn't She Lovely (lead sheet), Toxicity, What's Going On (no tab) are separated but unscored.
 
+Long songs, tempo (Nov 2026, owner's Arabic song Law Yeuaaidni El Hawa, 6:40, Stemz-split bass): the tempo search stepped 0.25 bpm
+and rounded to 0.1, so over minutes the grid drifted by a whole 16th and a wrong tempo won (133 / 115 instead of a steady 141.86;
+every bar was garbled: 92 ties, 304 of 917 notes off the grid -> 7 ties, 135). Songs > 90 s now take the median tempo of 40 s windows
+and fit it on the whole song to 0.0005 bpm (kept unrounded). Guard: if that fit locks onto the triplet 8ths of a swung song (3/4 of the
+tempo: Isn't She Lovely 89.09) and the gaps read at 4/3 are clearly swung, the 4/3 tempo is used. rhythm_test: 6-minute song and
+long swung song (old code: 115.2 bpm). Other songs: Can't Stop 114.2 -> 92.0 (correct now); Something / Come Together / Thank You
+were wrong before and still are (tempo estimation on busy parts is a known weak spot). Downbeat can still be half a bar off.
+Short 'pickup' notes read 12/19/24 semitones above the next note (48 in that song): NOT confirmed as errors (the spectra do not
+show a missing fundamental clearly; may be real octaves or percussion bleed) - asked the owner to listen before changing anything.
+
 ## Scoring against real tabs (`test/score_tab.js`)
 `node test/score_tab.js samples/song.wav samples/song_ref.js [-v]` aligns detected pitches with a tab's pitch sequence (no timing
 needed) and prints per-section correct / wrong(octave) / missed / extra and precision. Reference files are written by hand from the
