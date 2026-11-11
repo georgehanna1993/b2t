@@ -152,6 +152,11 @@ were wrong before and still are (tempo estimation on busy parts is a known weak 
 Short 'pickup' notes read 12/19/24 semitones above the next note (48 in that song): NOT confirmed as errors (the spectra do not
 show a missing fundamental clearly; may be real octaves or percussion bleed) - asked the owner to listen before changing anything.
 
+Gap split (owner's report, same song 0:02.2, "missing G2 after the 3rd note"): F2, ~65 ms with no pitch, then A2 with NO onset.
+Gaps > 4 frames are not bridged, so no jump was seen and the A2 merged into the F2. buildPieces now adds a 'jump' (gap: true)
+when the 3 voiced frames after a > 4-frame gap differ by >= gapSplitSemis (1.5) from the 2-3 before; such a note is plucked, not
+legato. stem_artifacts_test (real frames; fails on old code). 9 songs: 71.4 / 70.7 -> 72.1% found / 70.8% precision.
+
 ## Scoring against real tabs (`test/score_tab.js`)
 `node test/score_tab.js samples/song.wav samples/song_ref.js [-v]` aligns detected pitches with a tab's pitch sequence (no timing
 needed) and prints per-section correct / wrong(octave) / missed / extra and precision. Reference files are written by hand from the

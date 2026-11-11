@@ -45,6 +45,7 @@
     passMaxMs: 90,       // a piece this short with no pluck, within 2 semitones of a neighbour, is a transition (9 songs: precision 68.5 -> ~70.5 %) // a mid-note pitch dropout followed by the same pitch is a re-pluck if the energy rises this much  // net change needed to call it a glide or jump (vibrato stays below this)
     jumpMaxFrames: 5,    // a pitch change spread over <= this many frames (~58 ms) is a jump, longer is a glide
     hammerMaxSemis: 5,   // bigger leaps without a new attack are re-plucks, not hammer-ons/pull-offs
+    gapSplitSemis: 1.5,  // a pitch change of >= this across an unvoiced gap with no onset splits the note (buildPieces)
     kickMaxMidi: 35,     // kick-drum bleed lives down here (< ~62 Hz) and snaps back up
     tailDb: 24,          // frames this far under the note's peak are ignored (decaying tail, hum)
     legatoMaxRiseDb: 8,   // a pitch jump with an energy bump bigger than this at the same moment is a pluck, not a hammer-on
@@ -278,6 +279,22 @@
       if (isJump) events.push({ type: 'jump', a: Math.max(0, maxAt - 1), b: maxAt, net });
       else if (monotonic) events.push({ type: 'glide', a, b, net });
     }
+    // A new pitch after a LONGER unvoiced gap (> 4 frames, not bridged above) with no onset of its own: the moves above never
+    // see it, so the whole stretch became one note at the majority pitch (owner's Arabic song 0:02.2: F2, ~60 ms silence,
+    // A2 - the A2 vanished into the F2). Split there; same pitch on both sides stays one note (dropoutReplucks decides).
+    for (let i = 1; i < n;) {
+      if (!isNaN(ms[i]) || isNaN(ms[i - 1])) { i++; continue; }
+      let j = i; while (j < n && isNaN(ms[j])) j++;
+      if (j < n && j - i > 4) {
+        const pre = [], post = [];
+        for (let q = i - 1; q >= 0 && pre.length < 3 && !isNaN(ms[q]); q--) pre.push(ms[q]);
+        for (let q = j; q < n && post.length < 3 && !isNaN(ms[q]); q++) post.push(ms[q]);
+        const net = post.length >= 3 && pre.length >= 2 ? median(post) - median(pre) : 0;
+        if (Math.abs(net) >= CFG.gapSplitSemis && !events.some(e => e.a <= j && e.b >= i - 1)) events.push({ type: 'jump', a: i - 1, b: j, net, gap: true });
+      }
+      i = j;
+    }
+    events.sort((p, q) => p.a - q.a);
     // a glide that pauses briefly at each fret is still ONE slide: merge same-direction events
     // separated by a short steady stretch (needs at least one real glide among them)
     const mergedEvents = [];
@@ -353,7 +370,8 @@
       } else {
         if (k === usable.length - 1 && R.count < 4) { prevR = R; continue; } // too short at the very end to trust (release artifacts)
         piece = mkPiece(R, between.length && between[0].type === 'jump' ? Math.max(prevR.e + 1, R.s - 1) : R.s);
-        piece.technique = ad <= CFG.hammerMaxSemis ? 'legato' : null; if (octTail) piece.octaveTail = true; pieces.push(piece);
+        piece.technique = ad <= CFG.hammerMaxSemis && !between.some(e => e.gap) ? 'legato' : null; // after a silent gap it was played again
+        if (octTail) piece.octaveTail = true; pieces.push(piece);
       }
       prevR = R;
     }

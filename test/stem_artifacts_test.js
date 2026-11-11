@@ -148,6 +148,14 @@ const fr = a => a.map((m, i) => ({ t: i * 0.0107, m: m === null ? NaN : m, c: m 
   const legato = seq(); legato[1].dur = 0.14;
   check(has && !A.dropTransitions(plucked)[1].blip && !A.dropTransitions(legato)[1].blip, 'a plucked short note or a 140 ms hammer-on stays', 'dropped');
 }
+// owner's Arabic song (Law Yeuaaidni El Hawa, 0:02.2): F2, ~65 ms of no pitch, then A2 with no onset of its own. The gap is too long
+// to bridge, so no jump was seen and the A2 vanished into the F2. A clear pitch change across a gap splits the note.
+{
+  const p = A.buildPieces(fr([41.04,41.03,41.04,41.05,41.04,41.04,41.03,41.04,41.02,41.02,41.01,41.02,41.02,41.03,41.01,40.89,null,null,null,null,null,null,45.01,44.93,45.04,45.03,44.99,45.02,45.03,45.02,45.02,45,45.01,44.97,44.87]));
+  check(p.length === 2 && Math.round(p[0].mf) === 41 && Math.round(p[1].mf) === 45 && p[1].technique !== 'legato', 'new pitch after a silent gap is its own (plucked) note', p.map(q => q.mf.toFixed(1) + (q.technique ? ' ' + q.technique : '')).join(' | '));
+  const same = A.buildPieces(fr([41,41,41,41,41,41,41,41,null,null,null,null,null,null,41.02,41,41,41,41,41,41]));
+  check(same.length === 1, 'same pitch across a gap stays one note (re-plucks are decided elsewhere)', same.length + ' pieces');
+}
 (async () => {
   for (const c of cases) {
     const notes = (await A.analyze([c.out], SR)).notes, used = new Set(), miss = [];
