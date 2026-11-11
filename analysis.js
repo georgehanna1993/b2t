@@ -45,7 +45,8 @@
     passMaxMs: 90,       // a piece this short with no pluck, within 2 semitones of a neighbour, is a transition (9 songs: precision 68.5 -> ~70.5 %) // a mid-note pitch dropout followed by the same pitch is a re-pluck if the energy rises this much  // net change needed to call it a glide or jump (vibrato stays below this)
     jumpMaxFrames: 5,    // a pitch change spread over <= this many frames (~58 ms) is a jump, longer is a glide
     hammerMaxSemis: 5,   // bigger leaps without a new attack are re-plucks, not hammer-ons/pull-offs
-    gapSplitSemis: 1.5,  // a pitch change of >= this across an unvoiced gap with no onset splits the note (buildPieces)
+    gapSplitSemis: 1.5,
+    octUpAbs: 0.5, octUpRel: 0.5, octUpMaxDur: 0.25, // same note again but its low odd harmonics collapsed (ratio vs the previous note): an octave up  // a pitch change of >= this across an unvoiced gap with no onset splits the note (buildPieces)
     kickMaxMidi: 35,     // kick-drum bleed lives down here (< ~62 Hz) and snaps back up
     tailDb: 24,          // frames this far under the note's peak are ignored (decaying tail, hum)
     legatoMaxRiseDb: 8,   // a pitch jump with an energy bump bigger than this at the same moment is a pluck, not a hammer-on
@@ -667,6 +668,26 @@
     }
     pitched.forEach(n => { n.midi = Math.round(n.mf - tune); if (n.slideToF != null) { const end = Math.round(n.slideToF - tune); if (n.slideOut) n.slideEnd = end; else n.slideTo = end; } });
 
+    // Same note again, but an octave UP: the previous low note still rings under a short higher one, so the tracker keeps the
+    // low period (owner's Arabic song, separated in-app: A1 A1 at 0:19.5/19.75 = A1 A2 by ear, G1 G1 at 0:22.0/22.5 = G1 G2).
+    // The new note's odd harmonics of the low pitch (f0, 3 f0) collapse against the even ones (2 f0, 4 f0), which belong to the
+    // octave above. Measured on 452 same-note pairs of that song: relative ratio median 1.0, 10th percentile 0.86; the two
+    // corrected notes 0.42 / 0.35.
+    {
+      const amp = (t, f) => { // Hann-windowed DFT magnitude at f over ~90 ms from 15 ms after t
+        const i0 = Math.round((t + 0.015) * srD), L = Math.round(0.09 * srD); if (i0 + L >= x.length) return 0;
+        let re = 0, im = 0; for (let k = 0; k < L; k++) { const w = 0.5 - 0.5 * Math.cos(2 * Math.PI * k / (L - 1)), v = x[i0 + k] * w, ph = 2 * Math.PI * f * k / srD; re += v * Math.cos(ph); im -= v * Math.sin(ph); }
+        return Math.hypot(re, im);
+      };
+      const oddEven = n => { const f = 440 * Math.pow(2, (n.midi - 69) / 12), a = [1, 2, 3, 4].map(h => amp(n.time, f * h)); return Math.max(a[0], a[2]) / Math.max(a[1], a[3], 1e-12); };
+      const pn = notes.filter(n => !n.mute && n.midi != null);
+      for (let i = 1; i < pn.length; i++) {
+        const p = pn[i - 1], n = pn[i];
+        if (n.midi !== p.midi || n.time - p.time > 1 || n.dur > CFG.octUpMaxDur || n.slideToF != null || 4 * 440 * Math.pow(2, (n.midi - 69) / 12) > 700 || n.midi + 12 > CFG.maxMidi) continue;
+        const rn = oddEven(n), rp = oddEven(p);
+        if (rn < CFG.octUpAbs && rn < CFG.octUpRel * rp) { n.midi += 12; n.mf += 12; n.octaveUp12 = true; n.confidence *= 0.85; }
+      }
+    }
     // octave-glitch repair: a lone note exactly an octave away from two agreeing neighbours
     const real = notes.filter(n => !n.mute && n.midi != null);
     for (let i = 1; i < real.length - 1; i++) {

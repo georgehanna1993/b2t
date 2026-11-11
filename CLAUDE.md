@@ -157,6 +157,15 @@ Gaps > 4 frames are not bridged, so no jump was seen and the A2 merged into the 
 when the 3 voiced frames after a > 4-frame gap differ by >= gapSplitSemis (1.5) from the 2-3 before; such a note is plucked, not
 legato. stem_artifacts_test (real frames; fails on old code). 9 songs: 71.4 / 70.7 -> 72.1% found / 70.8% precision.
 
+Octave-up over a ringing note (owner's corrections, same song separated in-app: 0:19.75 A1 -> A2, 0:20.88 D2 -> D3 ('G7'),
+0:22.48 G1 -> G2): a short note (<= octUpMaxDur 0.25 s) with the same pitch as the previous note (< 1 s before) whose low odd
+harmonics (f0, 3f0) collapsed against the even ones (2f0, 4f0): ratio < octUpAbs 0.5 and < octUpRel 0.5 x the previous note's ->
+an octave up. Song: 452 same-note pairs, relative ratio median 1.0, 10th pct 0.86. Without the 0.25 s cap Come Together lost
+1.1 points. stem_artifacts_test #12 (synthetic, fails on old code). 9 songs: 72.1 / 70.8 -> 72.5% found / 71.2% precision.
+Owner's corrections NOT fixed yet: 0:21.84 'x' is a clear G1 by ear and by spectrum (a 60 ms note; YIN never settles at 49 Hz);
+0:20.15 'should be D3' - the separated audio there is A1 (no 147 Hz), so the time may be off. Stemz stem reads the pickups as
+G3/E3 (12-19 semitones up) where the in-app separation reads the main pitch: the Stemz 48 kbps stem smears short low notes.
+
 ## Scoring against real tabs (`test/score_tab.js`)
 `node test/score_tab.js samples/song.wav samples/song_ref.js [-v]` aligns detected pitches with a tab's pitch sequence (no timing
 needed) and prints per-section correct / wrong(octave) / missed / extra and precision. Reference files are written by hand from the

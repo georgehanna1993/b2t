@@ -95,6 +95,17 @@ const cases = [];
   });
   cases.push({ name: 'fret-touch blip before a re-pluck is not a note', out, want });
 }
+{ // 12: owner's Arabic song (separated in-app): a short note an octave above a low note that is still ringing (A1 ... A2, G1 ... G2)
+  //     read as the low note again - the ringing fundamental kept the tracker on the low period. A same-octave re-pluck stays.
+  const out = new Float32Array(SR * 3), want = [];
+  tone(out, 0.3, 0.55, () => 33); want.push([0.3, 33]);
+  tone(out, 0.62, 0.11, () => 45, { gain: P('OG') || 0.9 }); want.push([0.62, 45]);
+  tone(out, 0.85, 0.4, () => 38); want.push([0.85, 38]);
+  tone(out, 1.4, 0.22, () => 31); want.push([1.4, 31]);
+  tone(out, 1.62, 0.11, () => 31, { gain: 0.9 }); want.push([1.62, 31]);
+  tone(out, 1.85, 0.4, () => 36); want.push([1.85, 36]);
+  cases.push({ name: 'short octave-up note over a ringing low note', out, want });
+}
 let pass = 0, fail = 0;
 const check = (ok, name, info) => { ok ? pass++ : fail++; console.log(`${ok ? 'ok  ' : 'FAIL'} ${name}${ok ? '' : ' | ' + info}`); };
 // pitch frames recorded from the real stem (48 kHz decode), fed straight to buildPieces
